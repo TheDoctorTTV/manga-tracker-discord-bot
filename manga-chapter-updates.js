@@ -215,20 +215,24 @@ client.on('interactionCreate', async interaction => {
     if (interaction.commandName === 'version') {
         const embed = new EmbedBuilder()
             .setTitle('Manga Tracker')
-            .setDescription(`The current version of the bot is **${BOT_VERSION}**.`)
+            .setDescription(`**${BOT_VERSION}**.`)
             .setColor(0x3498db);
-
+    
         try {
-            await user.send({ embeds: [embed] });
-            await interaction.reply({ content: 'Version info sent via DM!', flags: MessageFlags.Ephemeral });
-        } catch (error) {
-            console.error('Failed to send DM:', error);
+            // Send the embed directly in the interaction response
             await interaction.reply({
-                content: 'Failed to send version info via DM. Please ensure DMs are enabled.',
+                embeds: [embed],
+                flags: MessageFlags.Ephemeral,
+            });
+        } catch (error) {
+            console.error('Failed to send version info:', error);
+            await interaction.reply({
+                content: 'Failed to display version info. Please try again later.',
                 flags: MessageFlags.Ephemeral,
             });
         }
     }
+    
 
     if (interaction.commandName === 'addmanga') {
         const url = interaction.options.getString('url');
@@ -320,28 +324,49 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.commandName === 'importmanga') {
         try {
-            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral }); // Acknowledge the interaction
+    
             const file = interaction.options.getAttachment('file');
-            if (!file || !file.url.endsWith('.json')) {
-                await interaction.followUp({ content: 'Please provide a valid JSON file.', flags: MessageFlags.Ephemeral });
+            if (!file) {
+                await interaction.followUp({ content: 'No file attached. Please provide a valid JSON file.', flags: MessageFlags.Ephemeral });
                 return;
             }
-
-            const response = await axios.get(file.url);
-            const importedMangaIds = response.data;
-
-            if (!Array.isArray(importedMangaIds) || !importedMangaIds.every(id => typeof id === 'string')) {
+    
+            // Ensure the file has a .json extension
+            if (!file.name.endsWith('.json')) {
+                await interaction.followUp({ content: 'Please provide a valid JSON file with a .json extension.', flags: MessageFlags.Ephemeral });
+                return;
+            }
+    
+            // Fetch and parse the JSON file
+            const response = await axios.get(file.url, { responseType: 'json' }).catch(error => {
+                console.error('Error fetching file:', error.message);
+                return null;
+            });
+    
+            if (!response || !response.data) {
                 await interaction.followUp({
-                    content: 'Invalid file format. Expected an array of manga IDs.',
+                    content: 'Failed to read the file. Ensure it is a valid JSON file and try again.',
                     flags: MessageFlags.Ephemeral,
                 });
                 return;
             }
-
+    
+            const importedMangaIds = response.data;
+    
+            // Validate the file content
+            if (!Array.isArray(importedMangaIds) || !importedMangaIds.every(id => typeof id === 'string')) {
+                await interaction.followUp({
+                    content: 'Invalid file format. The file must contain an array of manga IDs as strings.',
+                    flags: MessageFlags.Ephemeral,
+                });
+                return;
+            }
+    
+            // Deduplicate and merge with existing IDs
             trackedMangaIds = [...new Set([...trackedMangaIds, ...importedMangaIds])];
             fs.writeFileSync(MANGA_FILE, JSON.stringify(trackedMangaIds, null, 2));
-
+    
             await interaction.followUp({
                 content: 'Manga tracking list successfully imported!',
                 flags: MessageFlags.Ephemeral,
@@ -349,11 +374,12 @@ client.on('interactionCreate', async interaction => {
         } catch (error) {
             console.error('Error importing manga file:', error.message);
             await interaction.followUp({
-                content: 'An error occurred while importing the file. Please check the format or try again later.',
+                content: 'An unexpected error occurred while importing the file. Please try again later.',
                 flags: MessageFlags.Ephemeral,
             });
         }
     }
+    
 });
 
 // Login to Discord
