@@ -117,3 +117,13 @@ client.on('interactionCreate', async interaction => {
 
 // Login to Discord
 client.login(process.env.DISCORD_TOKEN);
+
+
+const express = require('express');
+const app = express();
+
+// Basic route for UptimeRobot
+app.get('/', (req, res) => res.send('Bot is running!'));
+
+// Start the server on port 80
+app.listen(80, () => console.log('HTTP server is running on port 80'));
