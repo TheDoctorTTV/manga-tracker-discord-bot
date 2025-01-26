@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { Client, GatewayIntentBits, REST, Routes, EmbedBuilder, AttachmentBuilder, MessageFlags } = require('discord.js');
 const axios = require('axios');
+const express = require('express'); // Added for health check endpoint
 
 const client = new Client({ intents: [GatewayIntentBits.DirectMessages], partials: ['CHANNEL'] });
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -309,6 +310,17 @@ client.on('interactionCreate', async interaction => {
             });
         }
     }
+});
+
+// Health check endpoint
+const app = express();
+const PORT = 25589;
+app.get('/status', (req, res) => {
+    res.status(200).send('Bot is running!');
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Health check endpoint running at http://167.114.213.69:${PORT}/status`);
 });
 
 client.login(process.env.DISCORD_TOKEN);
