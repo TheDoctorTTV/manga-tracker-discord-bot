@@ -1,6 +1,7 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits, REST, Routes } = require('discord.js');
 const axios = require('axios');
+const schedule = require('node-schedule');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -13,7 +14,7 @@ const trackedMangaIds = [
     'ed996855-70de-449f-bba2-e8e24224c14d',
     '462bd3fc-019c-4f28-8884-d7513d1e5a80',
     '027df837-7a15-4893-9dc3-e2ae11b94717',
-    'a287ef9c-3718-4c6f-80be-44e404b78641'
+    'a287ef9c-3718-4c6f-80be-44e404b78641',
 ];
 
 // Store last chapter IDs to track changes
@@ -94,13 +95,14 @@ client.once('ready', async () => {
     }
 
     // Set the channel ID for auto updates
-    const channelId = '1332832330338795561';
+    const channelId = process.env.DISCORD_CHANNEL_ID;
 
-    // Daily update check (every 24 hours)
-    setInterval(async () => {
+    // Schedule daily update check at 5:00 PM UTC
+    schedule.scheduleJob('0 17 * * *', async () => {
+        console.log('Running daily manga update check...');
         const updates = await fetchMangaUpdates();
         await postMangaUpdates(channelId, updates, false);
-    }, 24 * 60 * 60 * 1000); // 24 hours in milliseconds
+    });
 });
 
 // Event: On interaction (for / commands)
@@ -109,21 +111,12 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.commandName === 'checkupdates') {
         await interaction.deferReply();
+        const channelId = process.env.DISCORD_CHANNEL_ID;
         const updates = await fetchMangaUpdates();
-        await postMangaUpdates(interaction.channelId, updates, true);
+        await postMangaUpdates(channelId, updates, true);
         await interaction.followUp('Checked for updates!');
     }
 });
 
 // Login to Discord
 client.login(process.env.DISCORD_TOKEN);
-
-
-const express = require('express');
-const app = express();
-
-// Basic route for UptimeRobot
-app.get('/', (req, res) => res.send('Bot is running!'));
-
-// Start the server on port 80
-app.listen(80, () => console.log('HTTP server is running on port 80'));
