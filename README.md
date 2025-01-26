@@ -54,7 +54,6 @@ If you want to host the bot yourself, follow these steps:
    ```env
    DISCORD_TOKEN=<your_discord_bot_token>
    MANGADEX_TOKEN=<your_mangadex_api_token>
-   PORT=25589
    ```
 4. Start the bot:
    ```bash
