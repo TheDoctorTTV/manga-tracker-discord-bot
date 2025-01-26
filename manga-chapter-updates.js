@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, REST, Routes } = require('discord.js');
+const { Client, GatewayIntentBits, REST, Routes, EmbedBuilder } = require('discord.js');
 const axios = require('axios');
 const schedule = require('node-schedule');
 
@@ -34,10 +34,17 @@ async function fetchMangaUpdates() {
             const chapterData = response.data.data[0];
             if (chapterData) {
                 updates.push({
+                    mangaId,
                     title: chapterData.attributes.title || 'Unknown Title',
                     chapter: chapterData.attributes.chapter || 'Unknown Chapter',
                     chapterId: chapterData.id,
                     link: `https://mangadex.org/chapter/${chapterData.id}`,
+                });
+            } else {
+                updates.push({
+                    mangaId,
+                    title: 'Unknown Title',
+                    chapter: 'No Chapters Found',
                 });
             }
         } catch (error) {
@@ -59,19 +66,31 @@ async function postMangaUpdates(channelId, updates, isManual = false) {
         update => isManual || lastChapterIds[update.chapterId] !== update.chapterId
     );
 
-    if (newUpdates.length === 0 && !isManual) {
-        return; // Don't post if no new updates during daily check
+    if (newUpdates.length === 0) {
+        // No new updates, post an embed of all manga being up to date
+        const embed = new EmbedBuilder()
+            .setTitle('Manga Update Status')
+            .setDescription('All tracked mangas are up to date.')
+            .setColor(0x00ff00);
+
+        updates.forEach(update => {
+            embed.addFields({
+                name: update.title,
+                value: `Chapter: ${update.chapter}\n[View Manga](https://mangadex.org/title/${update.mangaId})`,
+                inline: false,
+            });
+        });
+
+        await channel.send({ embeds: [embed] });
+        return;
     }
 
+    // Post new updates
     for (const update of newUpdates) {
         await channel.send(
             `**${update.title}** - Chapter ${update.chapter}\nRead here: ${update.link}`
         );
         lastChapterIds[update.chapterId] = update.chapterId;
-    }
-
-    if (isManual && newUpdates.length === 0) {
-        await channel.send('No new updates for the tracked mangas.');
     }
 }
 
