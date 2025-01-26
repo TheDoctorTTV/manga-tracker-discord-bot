@@ -6,6 +6,9 @@ const schedule = require('node-schedule');
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
+// Bot Version
+const BOT_VERSION = 'v0.2';
+
 // MangaDex API base URL
 const MANGADEX_API = 'https://api.mangadex.org';
 
@@ -98,20 +101,33 @@ async function postMangaUpdates(channelId, updates, isManual = false) {
 client.once('ready', async () => {
     console.log(`Logged in as ${client.user.tag}!`);
 
-    // Register slash commands
-    try {
-        console.log('Refreshing application (/) commands...');
-        const commands = [
-            {
-                name: 'checkupdates',
-                description: 'Manually check for manga updates and post them in this channel.',
-            },
-        ];
-        await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-        console.log('Successfully reloaded application (/) commands.');
-    } catch (error) {
-        console.error('Error registering slash commands:', error);
-    }
+    // Immediately invoke to refresh slash commands
+    (async () => {
+        try {
+            console.log('Refreshing application (/) commands...');
+            const commands = [
+                {
+                    name: 'checkupdates',
+                    description: 'Manually check for manga updates and post them in this channel.',
+                },
+                {
+                    name: 'version',
+                    description: 'Display the current version of the bot.',
+                },
+            ];
+
+            // Register commands for the specified guild using DISCORD_GUILD_ID
+            const guildId = process.env.DISCORD_GUILD_ID;
+            await rest.put(
+                Routes.applicationGuildCommands(client.user.id, guildId),
+                { body: commands }
+            );
+
+            console.log('Successfully reloaded application (/) commands for guild.');
+        } catch (error) {
+            console.error('Error registering slash commands:', error);
+        }
+    })();
 
     // Set the channel ID for auto updates
     const channelId = process.env.DISCORD_CHANNEL_ID;
@@ -134,6 +150,16 @@ client.on('interactionCreate', async interaction => {
         const updates = await fetchMangaUpdates();
         await postMangaUpdates(channelId, updates, true);
         await interaction.followUp('Checked for updates!');
+    }
+
+    if (interaction.commandName === 'version') {
+        const embed = new EmbedBuilder()
+            .setTitle('Bot Version')
+            .setDescription(`The current version of this bot is **${BOT_VERSION}**.`)
+            .setColor(0x3498db)
+            .setTimestamp();
+
+        await interaction.reply({ embeds: [embed] });
     }
 });
 
