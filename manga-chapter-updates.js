@@ -89,6 +89,13 @@ async function fetchUserMangaUpdates(username) {
 
 client.once('ready', async () => {
     console.log(`Logged in as ${client.user.tag}!`);
+
+    console.log(`Logged in as ${client.user.tag}!`);
+    client.user.setPresence({
+        activities: [{ name: 'MangaDex 📚', type: 'WATCHING' }],
+        status: 'online',
+    });
+
     const commands = [
         { name: 'checkupdates', description: 'Manually check for manga updates and send them via DM.' },
         { name: 'version', description: 'Display the current version of the bot.' },
