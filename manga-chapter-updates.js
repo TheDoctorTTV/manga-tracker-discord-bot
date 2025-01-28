@@ -89,8 +89,6 @@ async function fetchUserMangaUpdates(username) {
 
 client.once('ready', async () => {
     console.log(`Logged in as ${client.user.tag}!`);
-
-    console.log(`Logged in as ${client.user.tag}!`);
     client.user.setPresence({
         activities: [{ name: 'MangaDex 📚', type: 'WATCHING' }],
         status: 'online',
