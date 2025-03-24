@@ -60,11 +60,6 @@ If you want to host the bot yourself, follow these steps:
    node manga-chapter-updates.js
    ```
 
-## Invite the Bot
-
-Add the bot to your account using the following link:
-[Bot Authorize Page](https://discord.com/oauth2/authorize?client_id=1332835637442641973)
-
 ## Contributing
 
 Feel free to submit issues or pull requests to improve the bot. Contributions are welcome!
