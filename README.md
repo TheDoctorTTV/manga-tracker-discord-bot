@@ -77,10 +77,18 @@ npm start
 
 This repo includes:
 - `systemd/manga-tracker-discord-bot.service` (template)
+- `scripts/bootstrap.sh` (installs Node.js 20 via NVM, then runs setup)
 - `scripts/setup.sh` (installs dependencies + registers service)
 - `scripts/update.sh` (pulls latest + restarts service)
 
 ### Setup
+
+Fresh server (recommended):
+```bash
+./scripts/bootstrap.sh
+```
+
+If Node.js/npm are already installed:
 
 Run:
    ```bash
@@ -154,8 +162,10 @@ node -v
 npm -v
 ```
 
-Then rerun setup:
+Then rerun setup (or just use bootstrap):
 ```bash
+./scripts/bootstrap.sh
+# or
 ./scripts/setup.sh
 ```
 
