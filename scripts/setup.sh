@@ -6,7 +6,6 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BOT_USER="${BOT_USER:-$USER}"
 WORKDIR="${BOT_WORKDIR:-$ROOT_DIR}"
 ENV_FILE="${ENV_FILE:-$WORKDIR/.env}"
-NODE_BIN="${NODE_BIN:-$(command -v node)}"
 TEMPLATE_FILE="$ROOT_DIR/systemd/${SERVICE_NAME}.service"
 TMP_SERVICE_FILE="$(mktemp)"
 
@@ -15,13 +14,30 @@ cleanup() {
 }
 trap cleanup EXIT
 
+ensure_node_tooling() {
+  if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+    return
+  fi
+
+  NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+    # shellcheck disable=SC1090
+    source "$NVM_DIR/nvm.sh"
+    nvm use 20 >/dev/null 2>&1 || true
+  fi
+}
+
+ensure_node_tooling
+
+NODE_BIN="${NODE_BIN:-$(command -v node)}"
+
 if [[ ! -x "$NODE_BIN" ]]; then
-  echo "Node.js binary not found. Install Node.js 20+ and try again."
+  echo "Node.js binary not found. Run ./scripts/bootstrap.sh first, then retry."
   exit 1
 fi
 
 if ! command -v npm >/dev/null 2>&1; then
-  echo "npm not found. Install Node.js 20+ (which includes npm) and try again."
+  echo "npm not found. Run ./scripts/bootstrap.sh first, then retry."
   exit 1
 fi
 

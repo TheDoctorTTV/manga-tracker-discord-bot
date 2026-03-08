@@ -7,8 +7,23 @@ TARGET_REF="${1:-}"
 
 cd "$ROOT_DIR"
 
+ensure_node_tooling() {
+  if command -v npm >/dev/null 2>&1; then
+    return
+  fi
+
+  NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+    # shellcheck disable=SC1090
+    source "$NVM_DIR/nvm.sh"
+    nvm use 20 >/dev/null 2>&1 || true
+  fi
+}
+
+ensure_node_tooling
+
 if ! command -v npm >/dev/null 2>&1; then
-  echo "npm not found. Install Node.js 20+ (which includes npm) and try again."
+  echo "npm not found. Run ./scripts/bootstrap.sh first, then retry."
   exit 1
 fi
 
