@@ -20,6 +20,11 @@ if [[ ! -x "$NODE_BIN" ]]; then
   exit 1
 fi
 
+if ! command -v npm >/dev/null 2>&1; then
+  echo "npm not found. Install Node.js 20+ (which includes npm) and try again."
+  exit 1
+fi
+
 if [[ ! -f "$WORKDIR/package.json" ]]; then
   echo "package.json not found in $WORKDIR"
   exit 1

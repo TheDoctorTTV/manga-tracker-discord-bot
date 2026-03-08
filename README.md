@@ -40,6 +40,12 @@ If you want to host the bot yourself, follow these steps:
 - MangaDex API token
 - Linux host with `systemd` (for service mode)
 
+Check your runtime:
+```bash
+node -v
+npm -v
+```
+
 ### Installation
 
 1. Clone the repository:
@@ -133,6 +139,25 @@ The update script does:
 2. Checkout/pull requested ref (fast-forward only)
 3. `npm ci --omit=dev`
 4. Restart the `systemd` service
+
+## Troubleshooting
+
+If you see `bash: npm: command not found`, Node.js/npm are not installed on that machine.
+
+Install Node.js 20 LTS with NVM:
+```bash
+curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+source ~/.bashrc
+nvm install 20
+nvm use 20
+node -v
+npm -v
+```
+
+Then rerun setup:
+```bash
+./scripts/setup.sh
+```
 
 ## Contributing
 

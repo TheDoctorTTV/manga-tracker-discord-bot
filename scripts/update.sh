@@ -7,6 +7,11 @@ TARGET_REF="${1:-}"
 
 cd "$ROOT_DIR"
 
+if ! command -v npm >/dev/null 2>&1; then
+  echo "npm not found. Install Node.js 20+ (which includes npm) and try again."
+  exit 1
+fi
+
 if [[ -n "$(git status --porcelain)" ]]; then
   echo "Working tree has uncommitted changes. Commit/stash before updating."
   exit 1
