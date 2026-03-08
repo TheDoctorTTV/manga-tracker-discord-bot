@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const schedule = require('node-schedule');
-const { Client, GatewayIntentBits, REST, Routes, EmbedBuilder, AttachmentBuilder, MessageFlags } = require('discord.js');
+const { Client, GatewayIntentBits, REST, Routes, EmbedBuilder, AttachmentBuilder, MessageFlags, ActivityType } = require('discord.js');
 const axios = require('axios');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.DirectMessages], partials: ['CHANNEL'] });
@@ -397,7 +397,7 @@ async function runAutoCheckSweep() {
 client.once('ready', async () => {
     console.log(`Logged in as ${client.user.tag}!`);
     client.user.setPresence({
-        activities: [{ name: 'MangaDex 📚', type: 3 }],
+        activities: [{ name: 'Reading manga', type: ActivityType.Playing }],
         status: 'online',
     });
 
