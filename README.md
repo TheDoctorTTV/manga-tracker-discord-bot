@@ -8,7 +8,7 @@ Manga Tracker is an open-source Discord bot designed to help manga enthusiasts s
 
 - Track any manga listed on MangaDex using the **public API** (no MangaDex token required).
 - Search MangaDex titles directly from Discord.
-- Receive daily updates at **5 PM UTC** in your DMs about new chapters for your tracked manga.
+- Receive automatic DM updates on a custom interval (**6 hours to 7 days**).
 - Manually check updates at any time.
 - Export and import your tracked manga list to/from JSON files.
 
@@ -17,6 +17,7 @@ Manga Tracker is an open-source Discord bot designed to help manga enthusiasts s
 | Command         | Description                                    |
 | --------------- | ---------------------------------------------- |
 | `/checkupdates` | Manually check for updates on tracked manga.   |
+| `/setautocheck` | Set auto-check interval in hours (6 to 168).  |
 | `/version`      | Display the current version of the bot.        |
 | `/searchmanga`  | Search MangaDex by title.                      |
 | `/addmanga`     | Add a manga to your tracking list by URL or ID.|
@@ -28,7 +29,7 @@ Manga Tracker is an open-source Discord bot designed to help manga enthusiasts s
 ## How It Works
 
 1. **Add Manga**: Use `/addmanga` and provide the MangaDex URL to add a manga to your tracking list.
-2. **Receive Updates**: At 5 PM UTC, the bot will send you DMs with updates about new chapters for your tracked manga.
+2. **Receive Updates**: The bot auto-checks on your configured interval and sends a DM only when a tracked manga has a new chapter.
 3. **Manage Your List**: Use commands like `/removemanga`, `/listmanga`, `/exportmanga`, and `/importmanga` to customize your experience.
 
 ## Hosting the Bot

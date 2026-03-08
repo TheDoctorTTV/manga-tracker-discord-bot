@@ -9,12 +9,15 @@ const axios = require('axios');
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.DirectMessages], partials: ['CHANNEL'] });
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
-const BOT_VERSION = 'v3.0.0';
+const BOT_VERSION = 'v3.1.0';
 const MANGADEX_API = 'https://api.mangadex.org';
 const MANGA_DIR = './manga_data';
 const REQUIRED_ENV_VARS = ['DISCORD_TOKEN'];
 const STATUS_PORT = 25589;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MIN_AUTO_CHECK_HOURS = 6;
+const MAX_AUTO_CHECK_HOURS = 24 * 7;
+const DEFAULT_AUTO_CHECK_HOURS = 24;
 
 if (!fs.existsSync(MANGA_DIR)) fs.mkdirSync(MANGA_DIR);
 
@@ -56,6 +59,8 @@ function normalizeTrackedEntry(entry) {
             mangaId: entry,
             title: null,
             lastNotifiedChapterId: null,
+            lastSeenChapterNumber: null,
+            lastSeenChapterCount: null,
         };
     }
 
@@ -72,27 +77,48 @@ function normalizeTrackedEntry(entry) {
         mangaId,
         title: typeof entry.title === 'string' ? entry.title : null,
         lastNotifiedChapterId: typeof entry.lastNotifiedChapterId === 'string' ? entry.lastNotifiedChapterId : null,
+        lastSeenChapterNumber: typeof entry.lastSeenChapterNumber === 'string' ? entry.lastSeenChapterNumber : null,
+        lastSeenChapterCount: Number.isInteger(entry.lastSeenChapterCount) ? entry.lastSeenChapterCount : null,
     };
 }
 
 function normalizeUserData(rawData) {
     if (Array.isArray(rawData)) {
         const tracked = rawData.map(normalizeTrackedEntry).filter(Boolean);
-        return { version: 2, tracked };
+        return {
+            version: 3,
+            autoCheckIntervalHours: DEFAULT_AUTO_CHECK_HOURS,
+            lastAutoCheckAt: null,
+            tracked,
+        };
     }
 
     if (rawData && Array.isArray(rawData.tracked)) {
         const tracked = rawData.tracked.map(normalizeTrackedEntry).filter(Boolean);
-        return { version: 2, tracked };
+        const interval = Number.isInteger(rawData.autoCheckIntervalHours)
+            ? rawData.autoCheckIntervalHours
+            : DEFAULT_AUTO_CHECK_HOURS;
+        const autoCheckIntervalHours = Math.min(MAX_AUTO_CHECK_HOURS, Math.max(MIN_AUTO_CHECK_HOURS, interval));
+        const lastAutoCheckAt =
+            typeof rawData.lastAutoCheckAt === 'string' && !Number.isNaN(Date.parse(rawData.lastAutoCheckAt))
+                ? rawData.lastAutoCheckAt
+                : null;
+
+        return { version: 3, autoCheckIntervalHours, lastAutoCheckAt, tracked };
     }
 
-    return { version: 2, tracked: [] };
+    return {
+        version: 3,
+        autoCheckIntervalHours: DEFAULT_AUTO_CHECK_HOURS,
+        lastAutoCheckAt: null,
+        tracked: [],
+    };
 }
 
 function getUserData(userId) {
     const filePath = getUserFilePath(userId);
     if (!fs.existsSync(filePath)) {
-        return { version: 2, tracked: [] };
+        return normalizeUserData(null);
     }
 
     try {
@@ -100,7 +126,7 @@ function getUserData(userId) {
         return normalizeUserData(parsed);
     } catch (error) {
         console.error(`Error parsing user data for ${userId}:`, error.message);
-        return { version: 2, tracked: [] };
+        return normalizeUserData(null);
     }
 }
 
@@ -144,7 +170,7 @@ async function fetchMangaById(mangaId) {
     return response.data?.data || null;
 }
 
-async function fetchLatestChapter(mangaId) {
+async function fetchChapterSnapshot(mangaId) {
     const commonParams = {
         limit: 1,
         'manga[]': mangaId,
@@ -159,10 +185,12 @@ async function fetchLatestChapter(mangaId) {
     });
 
     let latestChapter = withEnglish.data?.data?.[0];
+    let chapterTotal = Number.isInteger(withEnglish.data?.total) ? withEnglish.data.total : null;
 
     if (!latestChapter) {
         const withoutLanguage = await axios.get(`${MANGADEX_API}/chapter`, { params: commonParams });
         latestChapter = withoutLanguage.data?.data?.[0];
+        chapterTotal = Number.isInteger(withoutLanguage.data?.total) ? withoutLanguage.data.total : null;
     }
 
     if (!latestChapter) {
@@ -175,7 +203,16 @@ async function fetchLatestChapter(mangaId) {
         title: latestChapter.attributes?.title || null,
         readableAt: latestChapter.attributes?.readableAt || null,
         link: `https://mangadex.org/chapter/${latestChapter.id}`,
+        total: chapterTotal,
     };
+}
+
+function parseChapterNumber(value) {
+    if (typeof value !== 'string') return null;
+    const normalized = value.trim();
+    if (!normalized) return null;
+    const parsed = Number.parseFloat(normalized);
+    return Number.isFinite(parsed) ? parsed : null;
 }
 
 async function resolveTrackedMangaTitle(entry) {
@@ -200,26 +237,57 @@ async function buildUserUpdates(userId) {
     for (const entry of userData.tracked) {
         try {
             const mangaTitle = await resolveTrackedMangaTitle(entry);
-            const latestChapter = await fetchLatestChapter(entry.mangaId);
-            if (!latestChapter) continue;
+            const snapshot = await fetchChapterSnapshot(entry.mangaId);
+            if (!snapshot) continue;
 
-            if (!entry.lastNotifiedChapterId) {
-                entry.lastNotifiedChapterId = latestChapter.id;
+            const oldCount = Number.isInteger(entry.lastSeenChapterCount) ? entry.lastSeenChapterCount : null;
+            const newCount = Number.isInteger(snapshot.total) ? snapshot.total : null;
+            const oldChapterRaw = entry.lastSeenChapterNumber;
+            const newChapterRaw = typeof snapshot.chapter === 'string' ? snapshot.chapter : null;
+            const oldChapterNumeric = parseChapterNumber(oldChapterRaw);
+            const newChapterNumeric = parseChapterNumber(newChapterRaw);
+
+            // First scan only stores baseline and sends no notifications.
+            if (!entry.lastNotifiedChapterId && oldCount === null && oldChapterRaw === null) {
+                entry.lastNotifiedChapterId = snapshot.id;
+                entry.lastSeenChapterNumber = newChapterRaw;
+                entry.lastSeenChapterCount = newCount;
                 changed = true;
                 continue;
             }
 
-            if (entry.lastNotifiedChapterId !== latestChapter.id) {
+            const hasMoreChapters = oldCount !== null && newCount !== null && newCount > oldCount;
+            const chapterNumberIncreased =
+                oldChapterNumeric !== null && newChapterNumeric !== null && newChapterNumeric > oldChapterNumeric;
+            const chapterIdChanged = entry.lastNotifiedChapterId && entry.lastNotifiedChapterId !== snapshot.id;
+            const chapterLabelChanged = oldChapterRaw !== newChapterRaw;
+
+            const hasNewContent =
+                hasMoreChapters ||
+                chapterNumberIncreased ||
+                (chapterIdChanged && chapterLabelChanged) ||
+                (chapterIdChanged && oldChapterRaw === null && newChapterRaw === null);
+
+            if (hasNewContent) {
                 updates.push({
                     mangaId: entry.mangaId,
                     title: mangaTitle,
-                    chapter: latestChapter.chapter,
-                    chapterTitle: latestChapter.title,
-                    link: latestChapter.link,
-                    readableAt: latestChapter.readableAt,
-                    latestChapterId: latestChapter.id,
+                    chapter: snapshot.chapter,
+                    chapterTitle: snapshot.title,
+                    link: snapshot.link,
+                    readableAt: snapshot.readableAt,
+                    latestChapterId: snapshot.id,
                 });
-                entry.lastNotifiedChapterId = latestChapter.id;
+            }
+
+            if (
+                entry.lastNotifiedChapterId !== snapshot.id ||
+                entry.lastSeenChapterNumber !== newChapterRaw ||
+                entry.lastSeenChapterCount !== newCount
+            ) {
+                entry.lastNotifiedChapterId = snapshot.id;
+                entry.lastSeenChapterNumber = newChapterRaw;
+                entry.lastSeenChapterCount = newCount;
                 changed = true;
             }
         } catch (error) {
@@ -250,27 +318,55 @@ function buildUpdatesEmbed(updates, title = '📖 Manga Updates') {
 function buildNoUpdatesEmbed() {
     return new EmbedBuilder()
         .setTitle('No Updates Found')
-        .setDescription('Your tracked manga has no new chapters.')
+        .setDescription('No new chapters.')
         .setColor(0xff0000)
         .setFooter({ text: 'Check back later for updates!' });
 }
 
-async function runDailyUpdateSweep() {
+function shouldRunAutoCheck(userData, nowMs) {
+    if (!userData.tracked || userData.tracked.length === 0) {
+        return false;
+    }
+
+    const intervalMs = userData.autoCheckIntervalHours * 60 * 60 * 1000;
+    if (!userData.lastAutoCheckAt) {
+        return true;
+    }
+
+    const lastRunMs = Date.parse(userData.lastAutoCheckAt);
+    if (Number.isNaN(lastRunMs)) {
+        return true;
+    }
+
+    return nowMs - lastRunMs >= intervalMs;
+}
+
+async function runAutoCheckSweep() {
     const files = fs.readdirSync(MANGA_DIR).filter((name) => name.endsWith('.json'));
+    const now = new Date();
+    const nowMs = now.getTime();
+    const nowIso = now.toISOString();
 
     for (const file of files) {
         const userId = file.replace('.json', '');
         if (!/^\d+$/.test(userId)) continue;
 
         try {
+            const userData = getUserData(userId);
+            if (!shouldRunAutoCheck(userData, nowMs)) continue;
+
             const updates = await buildUserUpdates(userId);
+            const refreshedData = getUserData(userId);
+            refreshedData.lastAutoCheckAt = nowIso;
+            saveUserData(userId, refreshedData);
+
             if (updates.length === 0) continue;
 
             const user = await client.users.fetch(userId);
-            const embed = buildUpdatesEmbed(updates, '📬 Daily Manga Updates');
+            const embed = buildUpdatesEmbed(updates, '📬 Auto Manga Updates');
             await user.send({ embeds: [embed] });
         } catch (error) {
-            console.error(`Error sending daily updates to user ${userId}:`, error.message);
+            console.error(`Error sending auto updates to user ${userId}:`, error.message);
         }
     }
 }
@@ -284,6 +380,11 @@ client.once('ready', async () => {
 
     const commands = [
         { name: 'checkupdates', description: 'Check for new chapters across your tracked manga.' },
+        {
+            name: 'setautocheck',
+            description: 'Set auto-check interval in hours (6 to 168).',
+            options: [{ name: 'hours', type: 4, description: 'Hours between auto checks', required: true }],
+        },
         { name: 'version', description: 'Display the current version of the bot.' },
         {
             name: 'searchmanga',
@@ -317,9 +418,9 @@ client.once('ready', async () => {
         console.error('Error registering slash commands:', error.message);
     }
 
-    schedule.scheduleJob('0 17 * * *', async () => {
-        console.log('Running scheduled daily update sweep...');
-        await runDailyUpdateSweep();
+    schedule.scheduleJob('*/30 * * * *', async () => {
+        console.log('Running scheduled auto-check sweep...');
+        await runAutoCheckSweep();
     });
 });
 
@@ -352,6 +453,28 @@ client.on('interactionCreate', async (interaction) => {
                 ],
             });
         }
+        return;
+    }
+
+    if (interaction.commandName === 'setautocheck') {
+        const hours = interaction.options.getInteger('hours', true);
+        if (hours < MIN_AUTO_CHECK_HOURS || hours > MAX_AUTO_CHECK_HOURS) {
+            await interaction.reply({
+                content: `Please choose a value between ${MIN_AUTO_CHECK_HOURS} and ${MAX_AUTO_CHECK_HOURS} hours.`,
+                flags: MessageFlags.Ephemeral,
+            });
+            return;
+        }
+
+        const userData = getUserData(userId);
+        userData.autoCheckIntervalHours = hours;
+        userData.lastAutoCheckAt = new Date().toISOString();
+        saveUserData(userId, userData);
+
+        await interaction.reply({
+            content: `Auto-check interval set to every **${hours} hour(s)**.`,
+            flags: MessageFlags.Ephemeral,
+        });
         return;
     }
 
@@ -440,14 +563,24 @@ client.on('interactionCreate', async (interaction) => {
 
             const title = pickMangaTitle(manga.attributes);
             let latestChapterId = null;
+            let latestChapterNumber = null;
+            let latestChapterCount = null;
             try {
-                const latestChapter = await fetchLatestChapter(mangaId);
-                latestChapterId = latestChapter?.id || null;
+                const snapshot = await fetchChapterSnapshot(mangaId);
+                latestChapterId = snapshot?.id || null;
+                latestChapterNumber = snapshot?.chapter || null;
+                latestChapterCount = Number.isInteger(snapshot?.total) ? snapshot.total : null;
             } catch (error) {
                 console.error(`Unable to fetch baseline chapter for ${mangaId}:`, error.message);
             }
 
-            userData.tracked.push({ mangaId, title, lastNotifiedChapterId: latestChapterId });
+            userData.tracked.push({
+                mangaId,
+                title,
+                lastNotifiedChapterId: latestChapterId,
+                lastSeenChapterNumber: latestChapterNumber,
+                lastSeenChapterCount: latestChapterCount,
+            });
             saveUserData(userId, userData);
 
             await interaction.reply({
