@@ -215,6 +215,29 @@ function parseChapterNumber(value) {
     return Number.isFinite(parsed) ? parsed : null;
 }
 
+async function downloadImportedJson(attachment) {
+    const urls = Array.from(new Set([attachment?.url, attachment?.proxyURL].filter(Boolean)));
+    let lastError = null;
+
+    for (const url of urls) {
+        try {
+            const response = await axios.get(url, {
+                responseType: 'text',
+                transformResponse: [(data) => data],
+                timeout: 15000,
+                headers: { 'User-Agent': 'MangaTrackerBot/3.1.0' },
+            });
+
+            const raw = typeof response.data === 'string' ? response.data : String(response.data ?? '');
+            return JSON.parse(raw);
+        } catch (error) {
+            lastError = error;
+        }
+    }
+
+    throw lastError || new Error('Unable to download JSON attachment.');
+}
+
 async function resolveTrackedMangaTitle(entry) {
     if (entry.title) return entry.title;
 
@@ -693,7 +716,7 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.commandName === 'importmanga') {
         const file = interaction.options.getAttachment('file');
 
-        if (!file || !file.name.endsWith('.json')) {
+        if (!file || !file.name.toLowerCase().endsWith('.json')) {
             await interaction.reply({
                 content: 'Please provide a valid JSON file with a .json extension.',
                 flags: MessageFlags.Ephemeral,
@@ -702,8 +725,8 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         try {
-            const response = await axios.get(file.url);
-            const imported = normalizeUserData(response.data);
+            const importedRaw = await downloadImportedJson(file);
+            const imported = normalizeUserData(importedRaw);
 
             if (!Array.isArray(imported.tracked)) {
                 await interaction.reply({
@@ -734,7 +757,7 @@ client.on('interactionCreate', async (interaction) => {
         } catch (error) {
             console.error('Error importing file:', error.message);
             await interaction.reply({
-                content: 'An error occurred while importing the file. Please try again later.',
+                content: 'Could not import that file. Please re-upload the JSON and try again.',
                 flags: MessageFlags.Ephemeral,
             });
         }
