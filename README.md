@@ -6,9 +6,10 @@ Manga Tracker is an open-source Discord bot designed to help manga enthusiasts s
 
 ## Features
 
-- Track any manga listed on MangaDex.
+- Track any manga listed on MangaDex using the **public API** (no MangaDex token required).
+- Search MangaDex titles directly from Discord.
 - Receive daily updates at **5 PM UTC** in your DMs about new chapters for your tracked manga.
-- Easily add, remove, or list tracked manga through slash commands.
+- Manually check updates at any time.
 - Export and import your tracked manga list to/from JSON files.
 
 ## Commands
@@ -17,7 +18,8 @@ Manga Tracker is an open-source Discord bot designed to help manga enthusiasts s
 | --------------- | ---------------------------------------------- |
 | `/checkupdates` | Manually check for updates on tracked manga.   |
 | `/version`      | Display the current version of the bot.        |
-| `/addmanga`     | Add a manga to your tracking list.             |
+| `/searchmanga`  | Search MangaDex by title.                      |
+| `/addmanga`     | Add a manga to your tracking list by URL or ID.|
 | `/removemanga`  | Remove a manga from your tracking list.        |
 | `/listmanga`    | List all manga currently being tracked.        |
 | `/exportmanga`  | Export your tracking list as a JSON file.      |
@@ -37,7 +39,6 @@ If you want to host the bot yourself, follow these steps:
 
 - Node.js (v20 or later)
 - A Discord bot token ([How to get a bot token](https://discord.com/developers/docs/intro))
-- MangaDex API token
 - Linux host with `systemd` (for service mode)
 
 Check your runtime:
@@ -60,7 +61,6 @@ npm -v
 3. Edit `.env`:
    ```env
    DISCORD_TOKEN=your_discord_bot_token
-   MANGADEX_TOKEN=your_mangadex_api_token
    ```
 4. Install dependencies:
    ```bash

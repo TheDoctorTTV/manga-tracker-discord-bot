@@ -2,16 +2,19 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const schedule = require('node-schedule');
 const { Client, GatewayIntentBits, REST, Routes, EmbedBuilder, AttachmentBuilder, MessageFlags } = require('discord.js');
 const axios = require('axios');
 
-const client = new Client({ intents: [GatewayIntentBits.DirectMessages], partials: ['CHANNEL'] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.DirectMessages], partials: ['CHANNEL'] });
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
-const BOT_VERSION = 'v1.0';
+const BOT_VERSION = 'v3.0.0';
 const MANGADEX_API = 'https://api.mangadex.org';
 const MANGA_DIR = './manga_data';
-const REQUIRED_ENV_VARS = ['DISCORD_TOKEN', 'MANGADEX_TOKEN'];
+const REQUIRED_ENV_VARS = ['DISCORD_TOKEN'];
+const STATUS_PORT = 25589;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 if (!fs.existsSync(MANGA_DIR)) fs.mkdirSync(MANGA_DIR);
 
@@ -36,7 +39,7 @@ function getLegacyUserFilePath(username) {
     return path.join(MANGA_DIR, `${sanitizedUsername}.json`);
 }
 
-function migrateLegacyUserData(userId, username) {
+function migrateLegacyUsernameFile(userId, username) {
     const userFilePath = getUserFilePath(userId);
     const legacyFilePath = getLegacyUserFilePath(username);
 
@@ -47,96 +50,262 @@ function migrateLegacyUserData(userId, username) {
     fs.renameSync(legacyFilePath, userFilePath);
 }
 
-function getUserMangaList(userId) {
-    const filePath = getUserFilePath(userId);
-    if (fs.existsSync(filePath)) return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    return [];
-}
-
-function saveUserMangaList(userId, mangaList) {
-    const filePath = getUserFilePath(userId);
-    fs.writeFileSync(filePath, JSON.stringify(mangaList, null, 2));
-}
-
-async function fetchUserMangaNames(userId) {
-    const mangaList = getUserMangaList(userId);
-    const mangaNames = [];
-    for (const mangaId of mangaList) {
-        try {
-            const response = await axios.get(`${MANGADEX_API}/manga/${mangaId}`, {
-                headers: { Authorization: `Bearer ${process.env.MANGADEX_TOKEN}` },
-            });
-            mangaNames.push(response.data.data.attributes.title.en || 'Unknown Title');
-        } catch (error) {
-            console.error(`Error fetching manga name for ID ${mangaId}:`, error.message);
-            mangaNames.push('Unknown Title');
-        }
+function normalizeTrackedEntry(entry) {
+    if (typeof entry === 'string' && UUID_REGEX.test(entry)) {
+        return {
+            mangaId: entry,
+            title: null,
+            lastNotifiedChapterId: null,
+        };
     }
-    return mangaNames;
+
+    if (!entry || typeof entry !== 'object') {
+        return null;
+    }
+
+    const mangaId = entry.mangaId || entry.id;
+    if (!mangaId || typeof mangaId !== 'string' || !UUID_REGEX.test(mangaId)) {
+        return null;
+    }
+
+    return {
+        mangaId,
+        title: typeof entry.title === 'string' ? entry.title : null,
+        lastNotifiedChapterId: typeof entry.lastNotifiedChapterId === 'string' ? entry.lastNotifiedChapterId : null,
+    };
 }
 
-async function fetchUserMangaUpdates(userId) {
-    const mangaList = getUserMangaList(userId);
+function normalizeUserData(rawData) {
+    if (Array.isArray(rawData)) {
+        const tracked = rawData.map(normalizeTrackedEntry).filter(Boolean);
+        return { version: 2, tracked };
+    }
+
+    if (rawData && Array.isArray(rawData.tracked)) {
+        const tracked = rawData.tracked.map(normalizeTrackedEntry).filter(Boolean);
+        return { version: 2, tracked };
+    }
+
+    return { version: 2, tracked: [] };
+}
+
+function getUserData(userId) {
+    const filePath = getUserFilePath(userId);
+    if (!fs.existsSync(filePath)) {
+        return { version: 2, tracked: [] };
+    }
+
+    try {
+        const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        return normalizeUserData(parsed);
+    } catch (error) {
+        console.error(`Error parsing user data for ${userId}:`, error.message);
+        return { version: 2, tracked: [] };
+    }
+}
+
+function saveUserData(userId, data) {
+    const filePath = getUserFilePath(userId);
+    const normalized = normalizeUserData(data);
+    fs.writeFileSync(filePath, JSON.stringify(normalized, null, 2));
+}
+
+function pickMangaTitle(attributes = {}) {
+    const titleMap = attributes.title || {};
+    if (titleMap.en) return titleMap.en;
+
+    const altTitles = Array.isArray(attributes.altTitles) ? attributes.altTitles : [];
+    for (const altTitle of altTitles) {
+        if (altTitle.en) return altTitle.en;
+    }
+
+    const firstTitle = Object.values(titleMap)[0];
+    return firstTitle || 'Unknown Title';
+}
+
+function extractMangaId(value) {
+    if (!value || typeof value !== 'string') return null;
+
+    const trimmed = value.trim();
+    if (UUID_REGEX.test(trimmed)) {
+        return trimmed;
+    }
+
+    const match = trimmed.match(/title\/([0-9a-f-]{36})/i);
+    if (match && UUID_REGEX.test(match[1])) {
+        return match[1];
+    }
+
+    return null;
+}
+
+async function fetchMangaById(mangaId) {
+    const response = await axios.get(`${MANGADEX_API}/manga/${mangaId}`);
+    return response.data?.data || null;
+}
+
+async function fetchLatestChapter(mangaId) {
+    const commonParams = {
+        limit: 1,
+        'manga[]': mangaId,
+        'order[readableAt]': 'desc',
+    };
+
+    const withEnglish = await axios.get(`${MANGADEX_API}/chapter`, {
+        params: {
+            ...commonParams,
+            'translatedLanguage[]': 'en',
+        },
+    });
+
+    let latestChapter = withEnglish.data?.data?.[0];
+
+    if (!latestChapter) {
+        const withoutLanguage = await axios.get(`${MANGADEX_API}/chapter`, { params: commonParams });
+        latestChapter = withoutLanguage.data?.data?.[0];
+    }
+
+    if (!latestChapter) {
+        return null;
+    }
+
+    return {
+        id: latestChapter.id,
+        chapter: latestChapter.attributes?.chapter || '?',
+        title: latestChapter.attributes?.title || null,
+        readableAt: latestChapter.attributes?.readableAt || null,
+        link: `https://mangadex.org/chapter/${latestChapter.id}`,
+    };
+}
+
+async function resolveTrackedMangaTitle(entry) {
+    if (entry.title) return entry.title;
+
+    try {
+        const manga = await fetchMangaById(entry.mangaId);
+        const title = pickMangaTitle(manga?.attributes);
+        entry.title = title;
+        return title;
+    } catch (error) {
+        console.error(`Error resolving manga title for ${entry.mangaId}:`, error.message);
+        return 'Unknown Title';
+    }
+}
+
+async function buildUserUpdates(userId) {
+    const userData = getUserData(userId);
     const updates = [];
+    let changed = false;
 
-    for (const mangaId of mangaList) {
+    for (const entry of userData.tracked) {
         try {
-            const mangaResponse = await axios.get(`${MANGADEX_API}/manga/${mangaId}`, {
-                headers: { Authorization: `Bearer ${process.env.MANGADEX_TOKEN}` },
-            });
+            const mangaTitle = await resolveTrackedMangaTitle(entry);
+            const latestChapter = await fetchLatestChapter(entry.mangaId);
+            if (!latestChapter) continue;
 
-            const mangaTitle = mangaResponse.data.data.attributes.title.en || 'Unknown Title';
+            if (!entry.lastNotifiedChapterId) {
+                entry.lastNotifiedChapterId = latestChapter.id;
+                changed = true;
+                continue;
+            }
 
-            const chapterResponse = await axios.get(`${MANGADEX_API}/chapter`, {
-                headers: { Authorization: `Bearer ${process.env.MANGADEX_TOKEN}` },
-                params: { manga: mangaId, translatedLanguage: ['en'], order: { chapter: 'desc' }, limit: 1 },
-            });
-
-            const latestChapter = chapterResponse.data.data[0];
-            if (latestChapter) {
-                const chapterNumber = latestChapter.attributes.chapter;
-                const chapterId = latestChapter.id;
-
+            if (entry.lastNotifiedChapterId !== latestChapter.id) {
                 updates.push({
+                    mangaId: entry.mangaId,
                     title: mangaTitle,
-                    chapter: chapterNumber,
-                    link: `https://mangadex.org/chapter/${chapterId}`,
+                    chapter: latestChapter.chapter,
+                    chapterTitle: latestChapter.title,
+                    link: latestChapter.link,
+                    readableAt: latestChapter.readableAt,
+                    latestChapterId: latestChapter.id,
                 });
+                entry.lastNotifiedChapterId = latestChapter.id;
+                changed = true;
             }
         } catch (error) {
-            console.error(`Error fetching updates for manga ID ${mangaId}:`, error.message);
+            console.error(`Error fetching updates for manga ID ${entry.mangaId}:`, error.message);
         }
+    }
+
+    if (changed) {
+        saveUserData(userId, userData);
     }
 
     return updates;
 }
 
+function formatUpdateLine(update, index) {
+    const chapterSuffix = update.chapterTitle ? ` - ${update.chapterTitle}` : '';
+    return `**${index + 1}. [${update.title}](<${update.link}>)** - Chapter ${update.chapter}${chapterSuffix}`;
+}
+
+function buildUpdatesEmbed(updates, title = '📖 Manga Updates') {
+    return new EmbedBuilder()
+        .setTitle(title)
+        .setColor(0x3498db)
+        .setDescription(updates.map(formatUpdateLine).join('\n'))
+        .setFooter({ text: `Total updates: ${updates.length}` });
+}
+
+function buildNoUpdatesEmbed() {
+    return new EmbedBuilder()
+        .setTitle('No Updates Found')
+        .setDescription('Your tracked manga has no new chapters.')
+        .setColor(0xff0000)
+        .setFooter({ text: 'Check back later for updates!' });
+}
+
+async function runDailyUpdateSweep() {
+    const files = fs.readdirSync(MANGA_DIR).filter((name) => name.endsWith('.json'));
+
+    for (const file of files) {
+        const userId = file.replace('.json', '');
+        if (!/^\d+$/.test(userId)) continue;
+
+        try {
+            const updates = await buildUserUpdates(userId);
+            if (updates.length === 0) continue;
+
+            const user = await client.users.fetch(userId);
+            const embed = buildUpdatesEmbed(updates, '📬 Daily Manga Updates');
+            await user.send({ embeds: [embed] });
+        } catch (error) {
+            console.error(`Error sending daily updates to user ${userId}:`, error.message);
+        }
+    }
+}
+
 client.once('ready', async () => {
     console.log(`Logged in as ${client.user.tag}!`);
     client.user.setPresence({
-        activities: [{ name: 'MangaDex 📚', type: 'WATCHING' }],
+        activities: [{ name: 'MangaDex 📚', type: 3 }],
         status: 'online',
     });
 
     const commands = [
-        { name: 'checkupdates', description: 'Manually check for manga updates and send them via DM.' },
+        { name: 'checkupdates', description: 'Check for new chapters across your tracked manga.' },
         { name: 'version', description: 'Display the current version of the bot.' },
         {
+            name: 'searchmanga',
+            description: 'Search MangaDex for manga to track.',
+            options: [{ name: 'query', type: 3, description: 'Manga title to search for', required: true }],
+        },
+        {
             name: 'addmanga',
-            description: 'Add a new manga URL to track.',
-            options: [{ name: 'url', type: 3, description: 'The MangaDex URL of the manga.', required: true }],
+            description: 'Add a MangaDex URL or manga ID to your tracking list.',
+            options: [{ name: 'url_or_id', type: 3, description: 'MangaDex title URL or manga UUID', required: true }],
         },
         {
             name: 'removemanga',
-            description: 'Remove a manga from tracking.',
-            options: [{ name: 'url', type: 3, description: 'The MangaDex URL to remove.', required: true }],
+            description: 'Remove a manga from tracking by URL or ID.',
+            options: [{ name: 'url_or_id', type: 3, description: 'MangaDex title URL or manga UUID', required: true }],
         },
-        { name: 'listmanga', description: 'List all tracked manga.' },
-        { name: 'exportmanga', description: 'Export your manga tracking list as a file.' },
+        { name: 'listmanga', description: 'List all manga you are currently tracking.' },
+        { name: 'exportmanga', description: 'Export your manga tracking list as JSON.' },
         {
             name: 'importmanga',
-            description: 'Import a new manga tracking list from a file.',
-            options: [{ name: 'file', type: 11, description: 'The JSON file to import.', required: true }],
+            description: 'Import your manga tracking list from a JSON file.',
+            options: [{ name: 'file', type: 11, description: 'JSON file to import', required: true }],
         },
     ];
 
@@ -145,143 +314,228 @@ client.once('ready', async () => {
         await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
         console.log('Successfully reloaded application (/) commands.');
     } catch (error) {
-        console.error('Error registering slash commands:', error);
+        console.error('Error registering slash commands:', error.message);
     }
+
+    schedule.scheduleJob('0 17 * * *', async () => {
+        console.log('Running scheduled daily update sweep...');
+        await runDailyUpdateSweep();
+    });
 });
 
-client.on('interactionCreate', async interaction => {
-    if (!interaction.isCommand()) return;
+client.on('interactionCreate', async (interaction) => {
+    if (!interaction.isChatInputCommand()) return;
+
     const userId = interaction.user.id;
     const username = interaction.user.username;
-    migrateLegacyUserData(userId, username);
+    migrateLegacyUsernameFile(userId, username);
 
     if (interaction.commandName === 'checkupdates') {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    
+
         try {
-            const updates = await fetchUserMangaUpdates(userId);
-    
+            const updates = await buildUserUpdates(userId);
             if (updates.length === 0) {
-                const noUpdatesEmbed = new EmbedBuilder()
-                    .setTitle('No Updates Found')
-                    .setDescription('Your tracked manga has no new chapters.')
-                    .setColor(0xff0000)
-                    .setFooter({ text: 'Check back later for updates!' });
-    
-                await interaction.followUp({ embeds: [noUpdatesEmbed] });
+                await interaction.followUp({ embeds: [buildNoUpdatesEmbed()] });
                 return;
             }
-    
-            const updatesEmbed = new EmbedBuilder()
-                .setTitle('📖 Manga Updates')
-                .setColor(0x3498db)
-                .setDescription(
-                    updates
-                        .map(
-                            (update, index) =>
-                                `**${index + 1}. [${update.title}](<${update.link}>)** - Chapter ${update.chapter}`
-                        )
-                        .join('\n')
-                )
-                .setFooter({ text: `Total updates: ${updates.length}` });
-    
-            await interaction.followUp({ embeds: [updatesEmbed] });
+
+            await interaction.followUp({ embeds: [buildUpdatesEmbed(updates)] });
         } catch (error) {
             console.error('Error checking updates:', error.message);
-            const errorEmbed = new EmbedBuilder()
-                .setTitle('Error')
-                .setDescription('An error occurred while checking for updates. Please try again later.')
-                .setColor(0xff0000);
-            await interaction.followUp({ embeds: [errorEmbed] });
+            await interaction.followUp({
+                embeds: [
+                    new EmbedBuilder()
+                        .setTitle('Error')
+                        .setDescription('An error occurred while checking updates. Please try again later.')
+                        .setColor(0xff0000),
+                ],
+            });
         }
+        return;
     }
-    
 
     if (interaction.commandName === 'version') {
-        const embed = new EmbedBuilder()
-            .setTitle('Manga Tracker')
-            .setDescription(`**${BOT_VERSION}**.`)
-            .setColor(0x3498db);
+        await interaction.reply({
+            embeds: [
+                new EmbedBuilder()
+                    .setTitle('Manga Tracker')
+                    .setDescription(`**${BOT_VERSION}**`)
+                    .setColor(0x3498db),
+            ],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
+    }
 
-        await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    if (interaction.commandName === 'searchmanga') {
+        const query = interaction.options.getString('query', true).trim();
+
+        try {
+            const response = await axios.get(`${MANGADEX_API}/manga`, {
+                params: {
+                    title: query,
+                    limit: 5,
+                    'order[relevance]': 'desc',
+                },
+            });
+
+            const results = response.data?.data || [];
+            if (results.length === 0) {
+                await interaction.reply({
+                    content: `No results found for "${query}".`,
+                    flags: MessageFlags.Ephemeral,
+                });
+                return;
+            }
+
+            const lines = results.map((manga, index) => {
+                const title = pickMangaTitle(manga.attributes);
+                return `**${index + 1}.** ${title}\nID: \`${manga.id}\`\nhttps://mangadex.org/title/${manga.id}`;
+            });
+
+            await interaction.reply({
+                embeds: [
+                    new EmbedBuilder()
+                        .setTitle(`Search Results: ${query}`)
+                        .setDescription(lines.join('\n\n'))
+                        .setColor(0x3498db),
+                ],
+                flags: MessageFlags.Ephemeral,
+            });
+        } catch (error) {
+            console.error('Error searching manga:', error.message);
+            await interaction.reply({
+                content: 'Unable to search MangaDex right now. Please try again later.',
+                flags: MessageFlags.Ephemeral,
+            });
+        }
+        return;
     }
 
     if (interaction.commandName === 'addmanga') {
-        const url = interaction.options.getString('url');
-        const mangaIdMatch = url.match(/title\/([a-f0-9-]+)/);
+        const input = interaction.options.getString('url_or_id', true);
+        const mangaId = extractMangaId(input);
 
-        if (!mangaIdMatch) {
-            await interaction.reply({ content: 'Invalid MangaDex URL provided.', flags: MessageFlags.Ephemeral });
+        if (!mangaId) {
+            await interaction.reply({
+                content: 'Invalid MangaDex URL or manga ID. Example: https://mangadex.org/title/<id>',
+                flags: MessageFlags.Ephemeral,
+            });
             return;
         }
 
-        const mangaId = mangaIdMatch[1];
-        const userMangaList = getUserMangaList(userId);
-
-        if (userMangaList.includes(mangaId)) {
+        const userData = getUserData(userId);
+        if (userData.tracked.some((entry) => entry.mangaId === mangaId)) {
             await interaction.reply({ content: 'This manga is already being tracked.', flags: MessageFlags.Ephemeral });
             return;
         }
 
-        userMangaList.push(mangaId);
-        saveUserMangaList(userId, userMangaList);
+        try {
+            const manga = await fetchMangaById(mangaId);
+            if (!manga) {
+                await interaction.reply({ content: 'Manga not found on MangaDex.', flags: MessageFlags.Ephemeral });
+                return;
+            }
 
-        await interaction.reply({ content: 'Manga added to your tracking list.', flags: MessageFlags.Ephemeral });
+            const title = pickMangaTitle(manga.attributes);
+            let latestChapterId = null;
+            try {
+                const latestChapter = await fetchLatestChapter(mangaId);
+                latestChapterId = latestChapter?.id || null;
+            } catch (error) {
+                console.error(`Unable to fetch baseline chapter for ${mangaId}:`, error.message);
+            }
+
+            userData.tracked.push({ mangaId, title, lastNotifiedChapterId: latestChapterId });
+            saveUserData(userId, userData);
+
+            await interaction.reply({
+                content: `Now tracking **${title}**.`,
+                flags: MessageFlags.Ephemeral,
+            });
+        } catch (error) {
+            console.error('Error adding manga:', error.message);
+            await interaction.reply({
+                content: 'Could not add this manga right now. Please try again later.',
+                flags: MessageFlags.Ephemeral,
+            });
+        }
+        return;
     }
 
     if (interaction.commandName === 'removemanga') {
-        const url = interaction.options.getString('url');
-        const mangaIdMatch = url.match(/title\/([a-f0-9-]+)/);
+        const input = interaction.options.getString('url_or_id', true);
+        const mangaId = extractMangaId(input);
 
-        if (!mangaIdMatch) {
-            await interaction.reply({ content: 'Invalid MangaDex URL provided.', flags: MessageFlags.Ephemeral });
+        if (!mangaId) {
+            await interaction.reply({
+                content: 'Invalid MangaDex URL or manga ID. Example: https://mangadex.org/title/<id>',
+                flags: MessageFlags.Ephemeral,
+            });
             return;
         }
 
-        const mangaId = mangaIdMatch[1];
-        const userMangaList = getUserMangaList(userId);
-
-        if (!userMangaList.includes(mangaId)) {
-            await interaction.reply({ content: 'This manga is not being tracked.', flags: MessageFlags.Ephemeral });
+        const userData = getUserData(userId);
+        if (!userData.tracked.some((entry) => entry.mangaId === mangaId)) {
+            await interaction.reply({ content: 'This manga is not currently tracked.', flags: MessageFlags.Ephemeral });
             return;
         }
 
-        const updatedList = userMangaList.filter(id => id !== mangaId);
-        saveUserMangaList(userId, updatedList);
+        userData.tracked = userData.tracked.filter((entry) => entry.mangaId !== mangaId);
+        saveUserData(userId, userData);
 
         await interaction.reply({ content: 'Manga removed from your tracking list.', flags: MessageFlags.Ephemeral });
+        return;
     }
 
     if (interaction.commandName === 'listmanga') {
-        const mangaNames = await fetchUserMangaNames(userId);
-    
-        if (mangaNames.length === 0) {
-            const noMangaEmbed = new EmbedBuilder()
-                .setTitle('Tracked Manga')
-                .setDescription('You are not tracking any manga.')
-                .setColor(0xff0000)
-                .setFooter({ text: 'Use /addmanga to start tracking manga!' });
-    
-            await interaction.reply({ embeds: [noMangaEmbed], flags: MessageFlags.Ephemeral });
+        const userData = getUserData(userId);
+
+        if (userData.tracked.length === 0) {
+            await interaction.reply({
+                embeds: [
+                    new EmbedBuilder()
+                        .setTitle('Tracked Manga')
+                        .setDescription('You are not tracking any manga.')
+                        .setColor(0xff0000)
+                        .setFooter({ text: 'Use /addmanga to start tracking.' }),
+                ],
+                flags: MessageFlags.Ephemeral,
+            });
             return;
         }
-    
-        const mangaListEmbed = new EmbedBuilder()
-            .setTitle('📚 Your Tracked Manga List')
-            .setColor(0x3498db)
-            .setDescription(
-                mangaNames.map((name, index) => `**${index + 1}.** ${name}`).join('\n')
-            )
-            .setFooter({ text: `Total Manga: ${mangaNames.length}` });
-    
-        await interaction.reply({ embeds: [mangaListEmbed], flags: MessageFlags.Ephemeral });
+
+        let changed = false;
+        const names = [];
+        for (const entry of userData.tracked) {
+            const hadTitle = Boolean(entry.title);
+            const title = await resolveTrackedMangaTitle(entry);
+            if (!hadTitle && entry.title) changed = true;
+            names.push(title);
+        }
+
+        if (changed) {
+            saveUserData(userId, userData);
+        }
+
+        await interaction.reply({
+            embeds: [
+                new EmbedBuilder()
+                    .setTitle('📚 Your Tracked Manga List')
+                    .setColor(0x3498db)
+                    .setDescription(names.map((name, index) => `**${index + 1}.** ${name}`).join('\n'))
+                    .setFooter({ text: `Total manga: ${names.length}` }),
+            ],
+            flags: MessageFlags.Ephemeral,
+        });
+        return;
     }
-    
 
     if (interaction.commandName === 'exportmanga') {
-        const userMangaList = getUserMangaList(userId);
+        const userData = getUserData(userId);
 
-        if (userMangaList.length === 0) {
+        if (userData.tracked.length === 0) {
             await interaction.reply({
                 content: 'Your manga tracking list is empty. Nothing to export.',
                 flags: MessageFlags.Ephemeral,
@@ -290,17 +544,17 @@ client.on('interactionCreate', async interaction => {
         }
 
         const fileName = `${sanitizeUsername(username)}_manga.json`;
-        fs.writeFileSync(fileName, JSON.stringify(userMangaList, null, 2));
+        fs.writeFileSync(fileName, JSON.stringify(userData, null, 2));
 
         const attachment = new AttachmentBuilder(fileName, { name: fileName });
         await interaction.user.send({ files: [attachment] });
-
-        fs.unlinkSync(fileName); // Clean up the temporary file
+        fs.unlinkSync(fileName);
 
         await interaction.reply({
             content: 'Your manga tracking list has been exported and sent via DM.',
             flags: MessageFlags.Ephemeral,
         });
+        return;
     }
 
     if (interaction.commandName === 'importmanga') {
@@ -316,23 +570,34 @@ client.on('interactionCreate', async interaction => {
 
         try {
             const response = await axios.get(file.url);
-            const importedData = response.data;
+            const imported = normalizeUserData(response.data);
 
-            if (Array.isArray(importedData) && importedData.every(id => typeof id === 'string')) {
-                const userMangaList = getUserMangaList(userId);
-                const combinedList = [...new Set([...userMangaList, ...importedData])];
-                saveUserMangaList(userId, combinedList);
-
+            if (!Array.isArray(imported.tracked)) {
                 await interaction.reply({
-                    content: 'Your manga tracking list has been successfully imported!',
+                    content: 'Invalid format. File must contain manga IDs or a tracked object.',
                     flags: MessageFlags.Ephemeral,
                 });
-            } else {
-                await interaction.reply({
-                    content: 'Invalid file format. Please provide a JSON file containing an array of manga IDs.',
-                    flags: MessageFlags.Ephemeral,
-                });
+                return;
             }
+
+            const existing = getUserData(userId);
+            const map = new Map();
+
+            for (const entry of existing.tracked) {
+                map.set(entry.mangaId, entry);
+            }
+
+            for (const entry of imported.tracked) {
+                if (!map.has(entry.mangaId)) {
+                    map.set(entry.mangaId, entry);
+                }
+            }
+
+            saveUserData(userId, { version: 2, tracked: Array.from(map.values()) });
+            await interaction.reply({
+                content: 'Your manga tracking list has been successfully imported.',
+                flags: MessageFlags.Ephemeral,
+            });
         } catch (error) {
             console.error('Error importing file:', error.message);
             await interaction.reply({
@@ -345,7 +610,6 @@ client.on('interactionCreate', async interaction => {
 
 requireEnvVars();
 
-const PORT = 25589;
 const statusServer = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/status') {
         res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -357,8 +621,8 @@ const statusServer = http.createServer((req, res) => {
     res.end('Not Found');
 });
 
-statusServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`Health check endpoint running at http://167.114.213.69:${PORT}/status`);
+statusServer.listen(STATUS_PORT, '0.0.0.0', () => {
+    console.log(`Health check endpoint running at http://0.0.0.0:${STATUS_PORT}/status`);
 });
 
 client.login(process.env.DISCORD_TOKEN);
