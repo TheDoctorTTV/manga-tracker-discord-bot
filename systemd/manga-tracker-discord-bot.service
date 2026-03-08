@@ -1,0 +1,18 @@
+[Unit]
+Description=Manga Tracker Discord Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__BOT_USER__
+Group=__BOT_USER__
+WorkingDirectory=__WORKDIR__
+EnvironmentFile=__ENV_FILE__
+ExecStart=__NODE_BIN__ __WORKDIR__/manga-chapter-updates.js
+Restart=on-failure
+RestartSec=5
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

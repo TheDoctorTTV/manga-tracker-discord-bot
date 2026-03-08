@@ -3,8 +3,13 @@
   "version": "1.0.0",
   "description": "A Discord bot that tracks manga updates from MangaDex for users.",
   "main": "manga-chapter-updates.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "start": "node manga-chapter-updates.js"
+    "start": "node manga-chapter-updates.js",
+    "setup:systemd": "./scripts/setup.sh",
+    "update:deploy": "./scripts/update.sh"
   },
   "dependencies": {
     "axios": "^1.8.2",

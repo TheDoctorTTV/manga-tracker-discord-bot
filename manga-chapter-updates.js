@@ -1,9 +1,9 @@
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
 const { Client, GatewayIntentBits, REST, Routes, EmbedBuilder, AttachmentBuilder, MessageFlags } = require('discord.js');
 const axios = require('axios');
-const express = require('express'); // Added for health check endpoint
 
 const client = new Client({ intents: [GatewayIntentBits.DirectMessages], partials: ['CHANNEL'] });
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -11,6 +11,7 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 const BOT_VERSION = 'v1.0';
 const MANGADEX_API = 'https://api.mangadex.org';
 const MANGA_DIR = './manga_data';
+const REQUIRED_ENV_VARS = ['DISCORD_TOKEN', 'MANGADEX_TOKEN'];
 
 if (!fs.existsSync(MANGA_DIR)) fs.mkdirSync(MANGA_DIR);
 
@@ -18,24 +19,47 @@ function sanitizeUsername(username) {
     return username.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
-function getUserFilePath(username) {
+function requireEnvVars() {
+    const missingVars = REQUIRED_ENV_VARS.filter((key) => !process.env[key]);
+    if (missingVars.length > 0) {
+        console.error(`Missing required environment variables: ${missingVars.join(', ')}`);
+        process.exit(1);
+    }
+}
+
+function getUserFilePath(userId) {
+    return path.join(MANGA_DIR, `${userId}.json`);
+}
+
+function getLegacyUserFilePath(username) {
     const sanitizedUsername = sanitizeUsername(username);
     return path.join(MANGA_DIR, `${sanitizedUsername}.json`);
 }
 
-function getUserMangaList(username) {
-    const filePath = getUserFilePath(username);
+function migrateLegacyUserData(userId, username) {
+    const userFilePath = getUserFilePath(userId);
+    const legacyFilePath = getLegacyUserFilePath(username);
+
+    if (!fs.existsSync(legacyFilePath) || fs.existsSync(userFilePath)) {
+        return;
+    }
+
+    fs.renameSync(legacyFilePath, userFilePath);
+}
+
+function getUserMangaList(userId) {
+    const filePath = getUserFilePath(userId);
     if (fs.existsSync(filePath)) return JSON.parse(fs.readFileSync(filePath, 'utf8'));
     return [];
 }
 
-function saveUserMangaList(username, mangaList) {
-    const filePath = getUserFilePath(username);
+function saveUserMangaList(userId, mangaList) {
+    const filePath = getUserFilePath(userId);
     fs.writeFileSync(filePath, JSON.stringify(mangaList, null, 2));
 }
 
-async function fetchUserMangaNames(username) {
-    const mangaList = getUserMangaList(username);
+async function fetchUserMangaNames(userId) {
+    const mangaList = getUserMangaList(userId);
     const mangaNames = [];
     for (const mangaId of mangaList) {
         try {
@@ -51,8 +75,8 @@ async function fetchUserMangaNames(username) {
     return mangaNames;
 }
 
-async function fetchUserMangaUpdates(username) {
-    const mangaList = getUserMangaList(username);
+async function fetchUserMangaUpdates(userId) {
+    const mangaList = getUserMangaList(userId);
     const updates = [];
 
     for (const mangaId of mangaList) {
@@ -127,13 +151,15 @@ client.once('ready', async () => {
 
 client.on('interactionCreate', async interaction => {
     if (!interaction.isCommand()) return;
+    const userId = interaction.user.id;
     const username = interaction.user.username;
+    migrateLegacyUserData(userId, username);
 
     if (interaction.commandName === 'checkupdates') {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     
         try {
-            const updates = await fetchUserMangaUpdates(username);
+            const updates = await fetchUserMangaUpdates(userId);
     
             if (updates.length === 0) {
                 const noUpdatesEmbed = new EmbedBuilder()
@@ -190,7 +216,7 @@ client.on('interactionCreate', async interaction => {
         }
 
         const mangaId = mangaIdMatch[1];
-        const userMangaList = getUserMangaList(username);
+        const userMangaList = getUserMangaList(userId);
 
         if (userMangaList.includes(mangaId)) {
             await interaction.reply({ content: 'This manga is already being tracked.', flags: MessageFlags.Ephemeral });
@@ -198,7 +224,7 @@ client.on('interactionCreate', async interaction => {
         }
 
         userMangaList.push(mangaId);
-        saveUserMangaList(username, userMangaList);
+        saveUserMangaList(userId, userMangaList);
 
         await interaction.reply({ content: 'Manga added to your tracking list.', flags: MessageFlags.Ephemeral });
     }
@@ -213,7 +239,7 @@ client.on('interactionCreate', async interaction => {
         }
 
         const mangaId = mangaIdMatch[1];
-        const userMangaList = getUserMangaList(username);
+        const userMangaList = getUserMangaList(userId);
 
         if (!userMangaList.includes(mangaId)) {
             await interaction.reply({ content: 'This manga is not being tracked.', flags: MessageFlags.Ephemeral });
@@ -221,13 +247,13 @@ client.on('interactionCreate', async interaction => {
         }
 
         const updatedList = userMangaList.filter(id => id !== mangaId);
-        saveUserMangaList(username, updatedList);
+        saveUserMangaList(userId, updatedList);
 
         await interaction.reply({ content: 'Manga removed from your tracking list.', flags: MessageFlags.Ephemeral });
     }
 
     if (interaction.commandName === 'listmanga') {
-        const mangaNames = await fetchUserMangaNames(username);
+        const mangaNames = await fetchUserMangaNames(userId);
     
         if (mangaNames.length === 0) {
             const noMangaEmbed = new EmbedBuilder()
@@ -253,7 +279,7 @@ client.on('interactionCreate', async interaction => {
     
 
     if (interaction.commandName === 'exportmanga') {
-        const userMangaList = getUserMangaList(username);
+        const userMangaList = getUserMangaList(userId);
 
         if (userMangaList.length === 0) {
             await interaction.reply({
@@ -293,9 +319,9 @@ client.on('interactionCreate', async interaction => {
             const importedData = response.data;
 
             if (Array.isArray(importedData) && importedData.every(id => typeof id === 'string')) {
-                const userMangaList = getUserMangaList(username);
+                const userMangaList = getUserMangaList(userId);
                 const combinedList = [...new Set([...userMangaList, ...importedData])];
-                saveUserMangaList(username, combinedList);
+                saveUserMangaList(userId, combinedList);
 
                 await interaction.reply({
                     content: 'Your manga tracking list has been successfully imported!',
@@ -317,14 +343,21 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// Health check endpoint
-const app = express();
+requireEnvVars();
+
 const PORT = 25589;
-app.get('/status', (req, res) => {
-    res.status(200).send('Bot is running!');
+const statusServer = http.createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/status') {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('Bot is running!');
+        return;
+    }
+
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('Not Found');
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+statusServer.listen(PORT, '0.0.0.0', () => {
     console.log(`Health check endpoint running at http://167.114.213.69:${PORT}/status`);
 });
 
