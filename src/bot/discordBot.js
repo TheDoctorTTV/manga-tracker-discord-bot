@@ -27,6 +27,7 @@ function createDiscordBot({ service, discordToken }) {
   const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.DirectMessages], partials: ['CHANNEL'] });
   const rest = new REST({ version: '10' }).setToken(discordToken);
   const pendingFallbackActions = new Map();
+  let autoCheckJob = null;
 
   function pruneExpiredPendingFallbacks() {
     const now = Date.now();
@@ -213,7 +214,12 @@ function createDiscordBot({ service, discordToken }) {
       console.error('Error registering slash commands:', error.message);
     }
 
-    schedule.scheduleJob('*/30 * * * *', async () => {
+    if (autoCheckJob) {
+      autoCheckJob.cancel();
+      autoCheckJob = null;
+    }
+
+    autoCheckJob = schedule.scheduleJob('*/30 * * * *', async () => {
       console.log('Running scheduled auto-check sweep...');
       await service.runAutoCheckSweep(async (userId, updates) => {
         const user = await client.users.fetch(userId);
@@ -707,6 +713,13 @@ function createDiscordBot({ service, discordToken }) {
 
   return {
     start: async () => client.login(discordToken),
+    stop: async () => {
+      if (autoCheckJob) {
+        autoCheckJob.cancel();
+        autoCheckJob = null;
+      }
+      client.destroy();
+    },
   };
 }
 

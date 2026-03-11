@@ -14,6 +14,7 @@ DASHBOARD_HOST="${DASHBOARD_HOST:-0.0.0.0}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_BINARY="${SCRIPT_DIR}/${BINARY_NAME}"
 TARGET_BINARY="${INSTALL_DIR}/${BINARY_NAME}"
+DATA_DIR="${INSTALL_DIR}/manga_data"
 SOURCE_DASHBOARD_HTML="${SCRIPT_DIR}/dashboard.html"
 SOURCE_DASHBOARD_CSS="${SCRIPT_DIR}/dashboard.css"
 UNIT_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
@@ -49,7 +50,10 @@ fi
 
 echo "Installing binary to $TARGET_BINARY"
 $SUDO mkdir -p "$INSTALL_DIR"
+$SUDO mkdir -p "$DATA_DIR"
 $SUDO install -m 755 "$SOURCE_BINARY" "$TARGET_BINARY"
+$SUDO chown "$BOT_USER:$BOT_GROUP" "$INSTALL_DIR"
+$SUDO chown "$BOT_USER:$BOT_GROUP" "$DATA_DIR"
 $SUDO chown "$BOT_USER:$BOT_GROUP" "$TARGET_BINARY"
 
 if [[ -f "$SOURCE_DASHBOARD_HTML" ]]; then
@@ -122,6 +126,18 @@ echo "Status:  sudo systemctl status $SERVICE_NAME --no-pager"
 echo "Logs:    journalctl -u $SERVICE_NAME -f"
 if [[ "$DASHBOARD_HOST" == "0.0.0.0" ]]; then
   echo "Dashboard: http://<server-ip-or-domain>:$DASHBOARD_PORT"
+  DETECTED_IPS="$(hostname -I 2>/dev/null | xargs || true)"
+  if [[ -n "$DETECTED_IPS" ]]; then
+    echo "Detected IP(s): $DETECTED_IPS"
+    FIRST_IP="${DETECTED_IPS%% *}"
+    echo "Try first:  http://$FIRST_IP:$DASHBOARD_PORT"
+  fi
 else
   echo "Dashboard: http://$DASHBOARD_HOST:$DASHBOARD_PORT"
+fi
+
+if ! $SUDO systemctl is-active --quiet "$SERVICE_NAME"; then
+  echo "Warning: service is not active yet. Check:"
+  echo "  sudo systemctl status $SERVICE_NAME --no-pager"
+  echo "  journalctl -u $SERVICE_NAME -n 100 --no-pager"
 fi

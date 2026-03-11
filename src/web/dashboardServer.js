@@ -88,7 +88,7 @@ function formatUptime(seconds) {
   return parts.join(' ');
 }
 
-function startDashboardServer({ service, updater }) {
+function startDashboardServer({ service, updater, botController }) {
   const updaterState = {
     checking: false,
     applying: false,
@@ -134,8 +134,10 @@ function startDashboardServer({ service, updater }) {
       if (req.method === 'GET' && pathName === '/api/admin/home') {
         const summary = service.getAdminSummary();
         const memoryRssMb = Math.round((process.memoryUsage().rss / 1024 / 1024) * 10) / 10;
+        const botRuntime = botController ? botController.getStatus() : { status: 'unknown' };
         sendJson(res, 200, {
-          botStatus: 'running',
+          botStatus: botRuntime.status || 'unknown',
+          botRuntime,
           users: summary.users,
           totalTracked: summary.totalTracked,
           sources: summary.sources,
@@ -145,6 +147,42 @@ function startDashboardServer({ service, updater }) {
           uptimeHuman: formatUptime(process.uptime()),
           memoryRssMb,
         });
+        return;
+      }
+
+      if (req.method === 'GET' && pathName === '/api/admin/bot/status') {
+        if (!botController) {
+          sendJson(res, 400, { error: 'Bot controller is not configured' });
+          return;
+        }
+        sendJson(res, 200, botController.getStatus());
+        return;
+      }
+
+      if (req.method === 'POST' && pathName === '/api/admin/bot/start') {
+        if (!botController) {
+          sendJson(res, 400, { error: 'Bot controller is not configured' });
+          return;
+        }
+        sendJson(res, 200, await botController.start());
+        return;
+      }
+
+      if (req.method === 'POST' && pathName === '/api/admin/bot/stop') {
+        if (!botController) {
+          sendJson(res, 400, { error: 'Bot controller is not configured' });
+          return;
+        }
+        sendJson(res, 200, await botController.stop());
+        return;
+      }
+
+      if (req.method === 'POST' && pathName === '/api/admin/bot/restart') {
+        if (!botController) {
+          sendJson(res, 400, { error: 'Bot controller is not configured' });
+          return;
+        }
+        sendJson(res, 200, await botController.restart());
         return;
       }
 
