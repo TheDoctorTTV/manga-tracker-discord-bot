@@ -774,6 +774,137 @@ async function addTrackedTarget(userId, target) {
     return { status: 'added', title, source: target.source };
 }
 
+function normalizeTitleForMatch(value) {
+    if (typeof value !== 'string') return '';
+    return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function pickBestSearchMatchByTitle(title, results) {
+    if (!Array.isArray(results) || results.length === 0) return null;
+    const normalizedTitle = normalizeTitleForMatch(title);
+    if (!normalizedTitle) return results[0];
+
+    const exact = results.find((item) => normalizeTitleForMatch(item.title) === normalizedTitle);
+    if (exact) return exact;
+
+    const startsWith = results.find((item) => normalizeTitleForMatch(item.title).startsWith(normalizedTitle));
+    if (startsWith) return startsWith;
+
+    const contains = results.find((item) => normalizeTitleForMatch(item.title).includes(normalizedTitle));
+    if (contains) return contains;
+
+    return results[0];
+}
+
+async function migrateTrackedEntriesToSource(userId, selectedSource) {
+    const userData = getUserData(userId);
+    const previousSource = getPreferredSource(userData);
+    const tracked = Array.isArray(userData.tracked) ? userData.tracked : [];
+    const otherEntriesCount = tracked.filter((entry) => entry.source !== selectedSource).length;
+
+    if (previousSource === selectedSource && otherEntriesCount === 0) {
+        return {
+            changed: false,
+            previousSource,
+            selectedSource,
+            migratedCount: 0,
+            failedCount: 0,
+            dedupedCount: 0,
+            totalConsidered: 0,
+        };
+    }
+
+    const keptEntries = [];
+    const existingTargetKeys = new Set(
+        tracked.filter((entry) => entry.source === selectedSource).map((entry) => getTrackedEntryKey(entry))
+    );
+
+    let changed = previousSource !== selectedSource;
+    let migratedCount = 0;
+    let failedCount = 0;
+    let dedupedCount = 0;
+    let totalConsidered = 0;
+
+    for (const entry of tracked) {
+        if (entry.source === selectedSource) {
+            keptEntries.push(entry);
+            continue;
+        }
+
+        totalConsidered += 1;
+
+        const title = await resolveTrackedMangaTitle(entry);
+        if (!title || title === 'Unknown Title') {
+            keptEntries.push(entry);
+            failedCount += 1;
+            continue;
+        }
+
+        let results = [];
+        try {
+            results = await searchMangaOnSource(selectedSource, title, 5);
+        } catch (error) {
+            console.error(`Error searching ${selectedSource} during migration for "${title}":`, error.message);
+        }
+
+        const match = pickBestSearchMatchByTitle(title, results);
+        if (!match || !match.mangaId) {
+            keptEntries.push(entry);
+            failedCount += 1;
+            continue;
+        }
+
+        const target = { source: selectedSource, mangaId: match.mangaId };
+        const targetKey = getTrackedEntryKey(target);
+        if (existingTargetKeys.has(targetKey)) {
+            dedupedCount += 1;
+            changed = true;
+            continue;
+        }
+
+        let latestChapterId = null;
+        let latestChapterNumber = null;
+        let latestChapterCount = null;
+        try {
+            const snapshot = await fetchChapterSnapshotForEntry(target);
+            latestChapterId = snapshot?.id || null;
+            latestChapterNumber = snapshot?.chapter || null;
+            latestChapterCount = Number.isInteger(snapshot?.total) ? snapshot.total : null;
+        } catch (error) {
+            console.error(`Unable to fetch baseline chapter for ${target.source}:${target.mangaId}:`, error.message);
+        }
+
+        keptEntries.push({
+            source: selectedSource,
+            mangaId: match.mangaId,
+            title: match.title || title,
+            lastNotifiedChapterId: latestChapterId,
+            lastSeenChapterNumber: latestChapterNumber,
+            lastSeenChapterCount: latestChapterCount,
+        });
+        existingTargetKeys.add(targetKey);
+        migratedCount += 1;
+        changed = true;
+    }
+
+    userData.preferredSource = selectedSource;
+    userData.tracked = keptEntries;
+
+    if (changed) {
+        saveUserData(userId, userData);
+    }
+
+    return {
+        changed,
+        previousSource,
+        selectedSource,
+        migratedCount,
+        failedCount,
+        dedupedCount,
+        totalConsidered,
+    };
+}
+
 function formatUpdateLine(update, index) {
     const chapterSuffix = update.chapterTitle ? ` - ${update.chapterTitle}` : '';
     const sourceSuffix = update.source ? ` (${getSourceDisplayName(update.source)})` : '';
@@ -976,14 +1107,35 @@ client.on('interactionCreate', async (interaction) => {
             return;
         }
 
-        const userData = getUserData(interaction.user.id);
-        userData.preferredSource = selectedSource;
-        saveUserData(interaction.user.id, userData);
+        await interaction.deferUpdate();
 
-        await interaction.update({
-            content: `Preferred source set to **${getSourceDisplayName(selectedSource)}**.`,
-            components: [buildPreferredSourceSelectRow(interaction.user.id, selectedSource)],
-        });
+        try {
+            const summary = await migrateTrackedEntriesToSource(interaction.user.id, selectedSource);
+            const sourceLabel = getSourceDisplayName(selectedSource);
+
+            let content = `Preferred source set to **${sourceLabel}**.`;
+            if (summary.totalConsidered > 0) {
+                content += ` Auto-migration complete: **${summary.migratedCount}** migrated`;
+                if (summary.dedupedCount > 0) {
+                    content += `, **${summary.dedupedCount}** merged as duplicates`;
+                }
+                if (summary.failedCount > 0) {
+                    content += `, **${summary.failedCount}** left in their original source`;
+                }
+                content += '.';
+            }
+
+            await interaction.editReply({
+                content,
+                components: [buildPreferredSourceSelectRow(interaction.user.id, selectedSource)],
+            });
+        } catch (error) {
+            console.error('Error migrating tracked manga during source change:', error.message);
+            await interaction.editReply({
+                content: 'Could not migrate your manga list right now. Your preferred source was not changed.',
+                components: [],
+            });
+        }
         return;
     }
 
