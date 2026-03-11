@@ -239,7 +239,7 @@ function startDashboardServer({ service, updater, botController }) {
     const local = isLocalRequest(req);
     const session = getSession(req);
 
-    if (!runtime.onboarding.completed && local) {
+    if (!runtime.onboarding.completed) {
       return {
         runtime,
         local,
