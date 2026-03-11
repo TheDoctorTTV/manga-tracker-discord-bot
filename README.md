@@ -11,6 +11,7 @@ Manga Tracker is an open-source Discord bot designed to help manga enthusiasts s
 - Receive automatic DM updates on a custom interval (**6 hours to 7 days**).
 - Manually check updates at any time.
 - Export and import your tracked manga list to/from JSON files.
+- Web dashboard for admin management of users, tracked manga, and settings.
 - Configure supported manga source domains in `manga-sources.json`.
 
 ## Commands
@@ -64,6 +65,9 @@ npm -v
 3. Edit `.env`:
    ```env
    DISCORD_TOKEN=your_discord_bot_token
+   DASHBOARD_ADMIN_TOKEN=change_me
+   DASHBOARD_PORT=9898
+   DASHBOARD_HOST=127.0.0.1
    ```
 4. Install dependencies:
    ```bash
@@ -75,6 +79,13 @@ npm -v
 ```bash
 npm start
 ```
+
+Dashboard URL (local by default):
+```text
+http://127.0.0.1:9898
+```
+
+If `DASHBOARD_ADMIN_TOKEN` is set, enter it in the dashboard header to unlock API actions.
 
 ## Run as a systemd service (recommended)
 
