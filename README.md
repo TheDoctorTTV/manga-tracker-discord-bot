@@ -97,7 +97,7 @@ curl -fsSL -o manga-tracker-linux.tar.gz https://github.com/TheDoctorTTV/manga-t
 
 Quick setup (latest prerelease, no clone required):
 ```bash
-curl -fsSL -o manga-tracker-linux.tar.gz "$(curl -fsSL https://api.github.com/repos/TheDoctorTTV/manga-tracker-discord-bot/releases | jq -r '[.[] | select(.prerelease == true and .draft == false)][0].assets[] | select(.name == \"manga-tracker-linux.tar.gz\") | .browser_download_url')" && tar -xzf manga-tracker-linux.tar.gz && cd manga-tracker-linux && sudo DISCORD_TOKEN=your_discord_bot_token ./install_systemd_service.sh
+curl -fsSL -o manga-tracker-linux.tar.gz "$(curl -fsSL https://api.github.com/repos/TheDoctorTTV/manga-tracker-discord-bot/releases | jq -r '[.[] | select(.prerelease == true and .draft == false)][0].assets[] | select(.name == "manga-tracker-linux.tar.gz") | .browser_download_url')" && tar -xzf manga-tracker-linux.tar.gz && cd manga-tracker-linux && sudo DISCORD_TOKEN=your_discord_bot_token ./install_systemd_service.sh
 ```
 
 Prerelease command note: requires `jq` to parse the GitHub Releases API response.
