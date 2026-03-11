@@ -89,37 +89,39 @@ It includes admin tabs for `Home`, `Users`, `Settings`, and `About`.
 
 ## Run as a systemd service (recommended)
 
-This repo includes:
-- `systemd/manga-tracker-discord-bot.service` (template)
-- `scripts/bootstrap.sh` (installs Node.js 20 via NVM, then runs setup)
-- `scripts/setup.sh` (builds binary if needed + registers service)
-- `scripts/build-binary.sh` (builds `dist/manga-tracker`)
-
-### Setup
-
-Fresh server (recommended):
+Quick setup (no clone required):
 ```bash
-./scripts/bootstrap.sh
+curl -fsSL -o manga-tracker-linux.tar.gz https://github.com/TheDoctorTTV/manga-tracker-discord-bot/releases/latest/download/manga-tracker-linux.tar.gz && tar -xzf manga-tracker-linux.tar.gz && cd manga-tracker-linux && sudo DISCORD_TOKEN=your_discord_bot_token ./install_systemd_service.sh
 ```
 
-If Node.js/npm are already installed:
-
-Run:
-   ```bash
-   ./scripts/setup.sh
-   ```
+What this does:
+- Downloads the latest Linux release package from GitHub Releases.
+- Extracts the package and runs the bundled installer script.
+- Installs the bundled binary to `/opt/manga-tracker-discord-bot/manga-tracker`.
+- Creates/enables/starts `manga-tracker-discord-bot.service`.
+- Uses `/etc/manga-tracker-discord-bot.env` for environment variables.
 
 Optional overrides when needed:
-- `BOT_USER=<linux-user> ./scripts/setup.sh`
-- `BOT_WORKDIR=/absolute/path/to/repo ./scripts/setup.sh`
-- `ENV_FILE=/absolute/path/to/.env ./scripts/setup.sh`
-- `BOT_BINARY=/absolute/path/to/manga-tracker ./scripts/setup.sh`
+- `SERVICE_NAME=manga-tracker-discord-bot`
+- `BOT_USER=<linux-user>`
+- `BOT_GROUP=<linux-group>`
+- `INSTALL_DIR=/opt/manga-tracker-discord-bot`
+- `BINARY_NAME=manga-tracker`
+- `ENV_FILE=/etc/manga-tracker-discord-bot.env`
+- `BOT_GITHUB_REPO=https://github.com/TheDoctorTTV/manga-tracker-discord-bot`
+- `DASHBOARD_HOST=127.0.0.1`
+- `DASHBOARD_PORT=9898`
 
-### Build binary manually
-
+Example with overrides:
 ```bash
-npm run build:binary
-./dist/manga-tracker
+curl -fsSL -o manga-tracker-linux.tar.gz https://github.com/TheDoctorTTV/manga-tracker-discord-bot/releases/latest/download/manga-tracker-linux.tar.gz && tar -xzf manga-tracker-linux.tar.gz && cd manga-tracker-linux && sudo DISCORD_TOKEN=your_discord_bot_token BOT_USER=manga BOT_GROUP=manga ./install_systemd_service.sh
+```
+
+To uninstall:
+```bash
+sudo ./uninstall_systemd_service.sh
+# or full purge:
+sudo PURGE=1 ./uninstall_systemd_service.sh
 ```
 
 ### Start
@@ -164,23 +166,14 @@ In the dashboard About tab updater:
 
 ## Troubleshooting
 
-If you see `bash: npm: command not found`, Node.js/npm are not installed on that machine.
+If setup fails, check:
+- `DISCORD_TOKEN` is provided in the setup command or present in `/etc/manga-tracker-discord-bot.env`.
+- The release package asset `manga-tracker-linux.tar.gz` exists on the latest release.
+- `systemd` is available and running on that machine.
 
-Install Node.js 20 LTS with NVM:
+Then rerun setup:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-source ~/.bashrc
-nvm install 20
-nvm use 20
-node -v
-npm -v
-```
-
-Then rerun setup (or just use bootstrap):
-```bash
-./scripts/bootstrap.sh
-# or
-./scripts/setup.sh
+curl -fsSL -o manga-tracker-linux.tar.gz https://github.com/TheDoctorTTV/manga-tracker-discord-bot/releases/latest/download/manga-tracker-linux.tar.gz && tar -xzf manga-tracker-linux.tar.gz && cd manga-tracker-linux && sudo DISCORD_TOKEN=your_discord_bot_token ./install_systemd_service.sh
 ```
 
 ## Contributing
