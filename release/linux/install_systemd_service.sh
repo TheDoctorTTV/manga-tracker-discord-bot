@@ -17,6 +17,7 @@ TARGET_BINARY="${INSTALL_DIR}/${BINARY_NAME}"
 DATA_DIR="${INSTALL_DIR}/manga_data"
 SOURCE_DASHBOARD_HTML="${SCRIPT_DIR}/dashboard.html"
 SOURCE_DASHBOARD_CSS="${SCRIPT_DIR}/dashboard.css"
+SOURCE_DASHBOARD_ICON="${SCRIPT_DIR}/WebsiteLogo.ico"
 UNIT_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
 if [[ $EUID -eq 0 ]]; then
@@ -62,6 +63,10 @@ fi
 
 if [[ -f "$SOURCE_DASHBOARD_CSS" ]]; then
   $SUDO install -m 644 "$SOURCE_DASHBOARD_CSS" "${INSTALL_DIR}/dashboard.css"
+fi
+
+if [[ -f "$SOURCE_DASHBOARD_ICON" ]]; then
+  $SUDO install -m 644 "$SOURCE_DASHBOARD_ICON" "${INSTALL_DIR}/WebsiteLogo.ico"
 fi
 
 if [[ ! -f "$ENV_FILE" ]]; then

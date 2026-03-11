@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Manga Tracker Admin Dashboard</title>
+<link rel="icon" href="/favicon.ico" />
 <link rel="stylesheet" href="/dashboard.css" />
 </head>
 <body>
@@ -229,8 +230,10 @@ const state = {
   botRuntime: null,
   updaterAutoChecked: false,
   updateProgressTimer: null,
+  postUpdateReloadTimer: null,
   confirmAction: null,
 };
+const TAB_STORAGE_KEY = 'manga_tracker_dashboard_active_tab';
 
 function setStatus(message, ok = true) {
   const el = document.getElementById('statusLine');
@@ -264,12 +267,20 @@ async function api(path, options = {}) {
 }
 
 function switchTab(tabKey) {
+  const nextTab = String(tabKey || '').trim().toLowerCase();
+  const panel = document.getElementById('tab-' + nextTab);
+  if (!panel) return;
+
   document.querySelectorAll('.tab-btn').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.tab === tabKey);
+    btn.classList.toggle('active', btn.dataset.tab === nextTab);
   });
 
   document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.add('hidden'));
-  document.getElementById('tab-' + tabKey).classList.remove('hidden');
+  panel.classList.remove('hidden');
+
+  try {
+    localStorage.setItem(TAB_STORAGE_KEY, nextTab);
+  } catch {}
 }
 
 function renderHome() {
@@ -975,6 +986,37 @@ function clearUpdateProgress() {
   wrap.classList.add('hidden');
 }
 
+function startPostUpdateReloadWatcher() {
+  if (state.postUpdateReloadTimer) {
+    clearInterval(state.postUpdateReloadTimer);
+    state.postUpdateReloadTimer = null;
+  }
+
+  let attempts = 0;
+  const maxAttempts = 180; // ~3 minutes at 1s interval
+  setUpdateProgress(100, 'Update requested. Waiting for service restart and page reload...');
+
+  state.postUpdateReloadTimer = setInterval(async () => {
+    attempts += 1;
+    try {
+      const response = await fetch('/status?ts=' + Date.now(), { cache: 'no-store' });
+      if (response.ok) {
+        clearInterval(state.postUpdateReloadTimer);
+        state.postUpdateReloadTimer = null;
+        window.location.reload();
+        return;
+      }
+    } catch {}
+
+    if (attempts >= maxAttempts) {
+      clearInterval(state.postUpdateReloadTimer);
+      state.postUpdateReloadTimer = null;
+      clearUpdateProgress();
+      setStatus('Update applied, but auto-reload timed out. Refresh this page manually.', false);
+    }
+  }, 1000);
+}
+
 async function applyUpdate() {
   const releaseMode = document.getElementById('releaseMode').value;
   const selectedTag = document.getElementById('releaseVersion').value.trim();
@@ -998,12 +1040,16 @@ async function applyUpdate() {
       clearInterval(state.updateProgressTimer);
       state.updateProgressTimer = null;
     }
-    setUpdateProgress(100, 'Update requested. Waiting for service restart...');
     renderUpdater();
-    setStatus(state.updater.lastApply && state.updater.lastApply.applied ? 'Update applied. Service restart requested.' : (state.updater.lastApply && state.updater.lastApply.reason) || 'No update applied.', true);
-    setTimeout(() => {
-      clearUpdateProgress();
-    }, 2500);
+    if (state.updater.lastApply && state.updater.lastApply.applied) {
+      setStatus('Update applied. Service restart requested. Auto-refreshing when available...', true);
+      startPostUpdateReloadWatcher();
+    } else {
+      setStatus((state.updater.lastApply && state.updater.lastApply.reason) || 'No update applied.', true);
+      setTimeout(() => {
+        clearUpdateProgress();
+      }, 1800);
+    }
   } catch (error) {
     clearUpdateProgress();
     setStatus(error.message, false);
@@ -1097,6 +1143,16 @@ document.getElementById('releaseMode').addEventListener('change', () => {
 
 (async () => {
   try {
+    try {
+      const savedTab = localStorage.getItem(TAB_STORAGE_KEY);
+      if (savedTab) {
+        switchTab(savedTab);
+      } else {
+        switchTab('home');
+      }
+    } catch {
+      switchTab('home');
+    }
     await refreshAll();
     setStatus('Admin dashboard ready.', true);
   } catch (error) {

@@ -13,10 +13,43 @@ function normalizeVersion(version) {
 
 function parseSemver(version) {
   const cleaned = normalizeVersion(version);
-  const [main] = cleaned.split('-');
+  const [main, prereleaseRaw = ''] = cleaned.split('-', 2);
   const [major, minor, patch] = main.split('.').map((part) => Number.parseInt(part, 10));
   if (![major, minor, patch].every(Number.isInteger)) return null;
-  return { major, minor, patch };
+  const prerelease = prereleaseRaw
+    .split('.')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => (/^\d+$/.test(part) ? Number.parseInt(part, 10) : part.toLowerCase()));
+  return { major, minor, patch, prerelease };
+}
+
+function comparePrerelease(a, b) {
+  const aPre = Array.isArray(a.prerelease) ? a.prerelease : [];
+  const bPre = Array.isArray(b.prerelease) ? b.prerelease : [];
+
+  // Stable versions rank higher than prereleases with same major/minor/patch.
+  if (aPre.length === 0 && bPre.length === 0) return 0;
+  if (aPre.length === 0) return 1;
+  if (bPre.length === 0) return -1;
+
+  const max = Math.max(aPre.length, bPre.length);
+  for (let i = 0; i < max; i += 1) {
+    const ai = aPre[i];
+    const bi = bPre[i];
+    if (ai === undefined) return -1;
+    if (bi === undefined) return 1;
+    if (ai === bi) continue;
+
+    const aIsNum = typeof ai === 'number';
+    const bIsNum = typeof bi === 'number';
+    if (aIsNum && bIsNum) return ai - bi;
+    if (aIsNum && !bIsNum) return -1;
+    if (!aIsNum && bIsNum) return 1;
+    return String(ai).localeCompare(String(bi));
+  }
+
+  return 0;
 }
 
 function compareVersions(a, b) {
@@ -26,7 +59,8 @@ function compareVersions(a, b) {
 
   if (va.major !== vb.major) return va.major - vb.major;
   if (va.minor !== vb.minor) return va.minor - vb.minor;
-  return va.patch - vb.patch;
+  if (va.patch !== vb.patch) return va.patch - vb.patch;
+  return comparePrerelease(va, vb);
 }
 
 function parseRepoSlug(repoUrl) {
@@ -374,6 +408,7 @@ class GitHubReleaseUpdater {
 
   launchDetachedReplaceWorker({ targetBinaryPath, downloadedBinaryPath, backupPath, originalMode, targetPid }) {
     const scriptPath = path.join(os.tmpdir(), `manga-tracker-updater-${Date.now()}-${Math.random().toString(16).slice(2)}.sh`);
+    const logPath = path.join(os.tmpdir(), `manga-tracker-updater-${Date.now()}-${Math.random().toString(16).slice(2)}.log`);
     const scriptBody = `#!/usr/bin/env bash
 set -euo pipefail
 TARGET_BINARY="$1"
@@ -383,22 +418,12 @@ MODE_OCTAL="$4"
 OLD_PID="$5"
 SCRIPT_SELF="$6"
 SYSTEMD_SERVICE="$7"
+LOG_FILE="$8"
 
-sleep 1
-if kill -0 "$OLD_PID" 2>/dev/null; then
-  kill -TERM "$OLD_PID" 2>/dev/null || true
-fi
-
-for _ in $(seq 1 120); do
-  if ! kill -0 "$OLD_PID" 2>/dev/null; then
-    break
-  fi
-  sleep 0.25
-done
-
-if kill -0 "$OLD_PID" 2>/dev/null; then
-  kill -KILL "$OLD_PID" 2>/dev/null || true
-fi
+touch "$LOG_FILE" 2>/dev/null || true
+{
+echo "[$(date -Is)] updater worker started"
+echo "target=$TARGET_BINARY new=$NEW_BINARY service=$SYSTEMD_SERVICE old_pid=$OLD_PID"
 
 if [[ -f "$TARGET_BINARY" ]]; then
   cp "$TARGET_BINARY" "$BACKUP_BINARY" 2>/dev/null || true
@@ -413,14 +438,30 @@ if [[ -z "$SYSTEMD_SERVICE" ]]; then
   exit 1
 fi
 
+RESTART_OK=0
 if command -v systemctl >/dev/null 2>&1; then
-  systemctl restart "$SYSTEMD_SERVICE"
+  if systemctl restart "$SYSTEMD_SERVICE"; then
+    RESTART_OK=1
+    echo "[$(date -Is)] systemctl restart succeeded"
+  else
+    echo "[$(date -Is)] systemctl restart failed; falling back to SIGKILL" >&2
+  fi
 else
-  echo "systemctl not found; cannot restart service $SYSTEMD_SERVICE" >&2
-  exit 1
+  echo "systemctl not found; falling back to SIGKILL" >&2
+fi
+
+if [[ "$RESTART_OK" -ne 1 ]]; then
+  if kill -0 "$OLD_PID" 2>/dev/null; then
+    kill -KILL "$OLD_PID" 2>/dev/null || true
+    echo "[$(date -Is)] sent SIGKILL to old process to trigger Restart=on-failure"
+  else
+    echo "[$(date -Is)] old process already exited before fallback signal"
+  fi
 fi
 
 rm -f "$SCRIPT_SELF" 2>/dev/null || true
+echo "[$(date -Is)] updater worker finished"
+} >> "$LOG_FILE" 2>&1
 `;
 
     fs.writeFileSync(scriptPath, scriptBody, { mode: 0o700 });
@@ -428,7 +469,7 @@ rm -f "$SCRIPT_SELF" 2>/dev/null || true
 
     const child = spawn(
       '/bin/bash',
-      [scriptPath, targetBinaryPath, downloadedBinaryPath, backupPath, modeOctal, String(targetPid), scriptPath, this.systemdService],
+      [scriptPath, targetBinaryPath, downloadedBinaryPath, backupPath, modeOctal, String(targetPid), scriptPath, this.systemdService, logPath],
       {
         detached: true,
         stdio: 'ignore',
@@ -439,6 +480,7 @@ rm -f "$SCRIPT_SELF" 2>/dev/null || true
     return {
       pid: child.pid,
       scriptPath,
+      logPath,
       modeOctal,
     };
   }
@@ -446,4 +488,5 @@ rm -f "$SCRIPT_SELF" 2>/dev/null || true
 
 module.exports = {
   GitHubReleaseUpdater,
+  compareVersions,
 };

@@ -46,6 +46,9 @@ install -m 644 "$ROOT_DIR/release/linux/LINUX_INSTALL.md" "$PKG_DIR/LINUX_INSTAL
 install -m 644 "$ROOT_DIR/.env.example" "$PKG_DIR/.env.example"
 install -m 644 "$ROOT_DIR/src/web/dashboard.html" "$PKG_DIR/dashboard.html"
 install -m 644 "$ROOT_DIR/src/web/dashboard.css" "$PKG_DIR/dashboard.css"
+if [[ -f "$ROOT_DIR/WebsiteLogo.ico" ]]; then
+  install -m 644 "$ROOT_DIR/WebsiteLogo.ico" "$PKG_DIR/WebsiteLogo.ico"
+fi
 
 echo "[3/5] Creating archive $ARCHIVE_PATH"
 mkdir -p "$RELEASE_DIR"

@@ -50,9 +50,16 @@ function getRequestBody(req) {
 
 const DASHBOARD_HTML_PATH = path.join(__dirname, 'dashboard.html');
 const DASHBOARD_CSS_PATH = path.join(__dirname, 'dashboard.css');
+const DASHBOARD_ICON_CANDIDATES = [
+  path.resolve(process.cwd(), 'WebsiteLogo.ico'),
+  path.resolve(process.cwd(), 'favicon.ico'),
+  path.join(__dirname, 'WebsiteLogo.ico'),
+  path.join(__dirname, 'favicon.ico'),
+];
 
 let dashboardHtmlTemplate = null;
 let dashboardCss = null;
+let dashboardIcon = undefined;
 
 function loadDashboardAssets() {
   if (dashboardHtmlTemplate === null) {
@@ -61,6 +68,11 @@ function loadDashboardAssets() {
 
   if (dashboardCss === null) {
     dashboardCss = fs.readFileSync(DASHBOARD_CSS_PATH, 'utf8');
+  }
+
+  if (dashboardIcon === undefined) {
+    const iconPath = DASHBOARD_ICON_CANDIDATES.find((candidate) => fs.existsSync(candidate));
+    dashboardIcon = iconPath ? fs.readFileSync(iconPath) : null;
   }
 }
 
@@ -74,6 +86,11 @@ function getDashboardHtml() {
 function getDashboardCss() {
   loadDashboardAssets();
   return dashboardCss;
+}
+
+function getDashboardIcon() {
+  loadDashboardAssets();
+  return dashboardIcon;
 }
 
 function formatUptime(seconds) {
@@ -117,6 +134,17 @@ function startDashboardServer({ service, updater, botController }) {
 
     if (req.method === 'GET' && pathName === '/dashboard.css') {
       sendCss(res, getDashboardCss());
+      return;
+    }
+
+    if (req.method === 'GET' && pathName === '/favicon.ico') {
+      const icon = getDashboardIcon();
+      if (!icon) {
+        sendJson(res, 404, { error: 'Favicon not found' });
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'image/x-icon', 'Cache-Control': 'public, max-age=86400' });
+      res.end(icon);
       return;
     }
 
