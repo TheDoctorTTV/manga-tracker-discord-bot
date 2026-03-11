@@ -287,11 +287,11 @@
     <div id="onboardingReadiness" class="muted"></div>
     <div class="row action-row">
       <button id="onboardingPrevBtn" type="button">Previous</button>
-      <button id="onboardingSaveContinueBtn" class="success" type="button">Save And Continue</button>
-      <button id="onboardingNextBtn" type="button">Next</button>
+      <button id="onboardingSaveContinueBtn" class="success" type="button">Save And Verify</button>
+      <button id="onboardingConfirmBtn" type="button">Confirm External Step</button>
     </div>
     <div class="row action-row">
-      <button id="onboardingSkipBtn" class="warn" type="button">Skip For Now</button>
+      <button id="onboardingResetBtn" class="warn" type="button">Reset Setup Progress</button>
       <button id="onboardingCompleteBtn" class="success" type="button">Mark Setup Complete</button>
     </div>
   </div>
@@ -319,11 +319,9 @@ const state = {
   auth: null,
   activeGuildId: '',
   managedGuildIds: [],
-  onboardingStep: 0,
 };
 const TAB_STORAGE_KEY = 'manga_tracker_dashboard_active_tab';
 const GUILD_STORAGE_KEY = 'manga_tracker_dashboard_active_guild';
-const ONBOARDING_SKIP_STORAGE_KEY = 'manga_tracker_dashboard_onboarding_skipped';
 
 function setStatus(message, ok = true) {
   const el = document.getElementById('statusLine');
@@ -346,10 +344,19 @@ async function api(path, options = {}) {
 
   if (!response.ok) {
     let message = response.statusText;
+    let payload = null;
     try {
-      const payload = await response.json();
+      payload = await response.json();
       message = payload.error || message;
     } catch {}
+    if (response.status === 423 && payload && payload.onboarding) {
+      if (state.envConfig) {
+        state.envConfig.onboarding = payload.onboarding;
+      }
+      if (state.auth) {
+        state.auth.onboarding = payload.onboarding;
+      }
+    }
     if (response.status === 401) {
       showAuthGate('Session expired or not authenticated. Continue with Discord to access the dashboard.');
     }
@@ -369,7 +376,12 @@ function withGuildPath(path) {
 }
 
 function switchTab(tabKey) {
-  const nextTab = String(tabKey || '').trim().toLowerCase();
+  let nextTab = String(tabKey || '').trim().toLowerCase();
+  const onboarding = getOnboardingStatus();
+  if (!onboarding.completed && ['home', 'users', 'about'].includes(nextTab)) {
+    nextTab = 'settings';
+    setStatus('Finish onboarding in Settings before using this tab.', false);
+  }
   const panel = document.getElementById('tab-' + nextTab);
   if (!panel) return;
 
@@ -662,7 +674,13 @@ function getOnboardingStatus() {
   if (state.auth && state.auth.onboarding) return state.auth.onboarding;
   return {
     completed: false,
+    currentStep: 1,
     readyToComplete: false,
+    confirmations: {
+      inviteConfirmed: false,
+      callbackConfirmed: false,
+    },
+    steps: [],
     readiness: {
       botConfigured: false,
       botInviteReady: false,
@@ -690,6 +708,8 @@ function renderSetupStatusCard() {
   summary.textContent =
     'Completed: ' +
     (onboarding.completed ? 'yes' : 'no') +
+    ' • Current step: ' +
+    String(onboarding.currentStep || 1) +
     ' • Ready to complete: ' +
     (onboarding.readyToComplete ? 'yes' : 'no');
   checklist.innerHTML = items
@@ -708,11 +728,26 @@ function renderSetupStatusCard() {
   } else {
     warning.classList.add('hidden');
   }
+
+  updateDashboardLocks();
 }
 
-function showOnboardingModal(step = 0) {
+function updateDashboardLocks() {
+  const onboarding = getOnboardingStatus();
+  const locked = !onboarding.completed;
+  const allowedTabs = new Set(['settings']);
+  document.querySelectorAll('.tab-btn').forEach((btn) => {
+    const tab = String(btn.dataset.tab || '').trim().toLowerCase();
+    const isLockedTab = locked && !allowedTabs.has(tab);
+    btn.disabled = isLockedTab;
+    btn.title = isLockedTab ? 'Complete onboarding in Settings to unlock this tab.' : '';
+  });
+  const activeGuild = document.getElementById('activeGuildSelect');
+  if (activeGuild) activeGuild.disabled = locked;
+}
+
+function showOnboardingModal() {
   const modal = document.getElementById('onboardingModal');
-  state.onboardingStep = Math.max(0, Math.min(2, Number(step) || 0));
   renderOnboardingStep();
   modal.classList.remove('hidden');
 }
@@ -724,40 +759,44 @@ function hideOnboardingModal() {
 
 function renderOnboardingStep() {
   const onboarding = getOnboardingStatus();
-  const readiness = onboarding.readiness || {};
-  const steps = [
-    {
-      title: 'Step 1 of 3 • Bot Token',
-      body: 'Set DISCORD_TOKEN in Settings -> Environment. This allows the bot process to start.',
-      ready: Boolean(readiness.botConfigured),
-    },
-    {
-      title: 'Step 2 of 3 • Bot Invite',
-      body:
-        'Ensure bot invite is ready by setting DISCORD_CLIENT_ID (or OAUTH_URL override). Then use Home -> Bot Invite URL to invite.',
-      ready: Boolean(readiness.botInviteReady),
-    },
-    {
-      title: 'Step 3 of 3 • Dashboard Auth',
-      body:
-        'Set DASHBOARD_PUBLIC_URL, DISCORD_AUTH_CLIENT_ID, DISCORD_AUTH_CLIENT_SECRET, and DASHBOARD_MANAGED_GUILD_IDS. Add the computed callback URL in Discord OAuth2 Redirects.',
-      ready: Boolean(readiness.dashboardAuthReady),
-    },
-  ];
-
-  const step = steps[state.onboardingStep] || steps[0];
+  const steps = Array.isArray(onboarding.steps) ? onboarding.steps : [];
+  const stepIndex = Number(onboarding.currentStep || 1);
+  const step = steps.find((item) => item.index === stepIndex) || steps[0] || null;
   const meta = document.getElementById('onboardingStepMeta');
   const body = document.getElementById('onboardingBody');
   const ready = document.getElementById('onboardingReadiness');
   const prevBtn = document.getElementById('onboardingPrevBtn');
-  const nextBtn = document.getElementById('onboardingNextBtn');
+  const saveBtn = document.getElementById('onboardingSaveContinueBtn');
+  const confirmBtn = document.getElementById('onboardingConfirmBtn');
   const completeBtn = document.getElementById('onboardingCompleteBtn');
+
+  if (!step) {
+    meta.textContent = 'Setup state unavailable';
+    body.textContent = 'Refresh the page to reload onboarding state.';
+    ready.textContent = '';
+    prevBtn.disabled = true;
+    saveBtn.disabled = true;
+    confirmBtn.disabled = true;
+    completeBtn.disabled = true;
+    return;
+  }
 
   meta.textContent = step.title;
   body.textContent = step.body;
-  ready.textContent = 'Readiness: ' + (step.ready ? 'ready' : 'not ready');
-  prevBtn.disabled = state.onboardingStep === 0;
-  nextBtn.disabled = state.onboardingStep >= steps.length - 1;
+  ready.textContent =
+    'Readiness: ' +
+    (step.ready ? 'ready' : 'not ready') +
+    ' • Confirmed: ' +
+    (step.confirmed ? 'yes' : 'no') +
+    ' • Complete: ' +
+    (step.complete ? 'yes' : 'no') +
+    (step.blockedReason ? ' • ' + step.blockedReason : '');
+
+  prevBtn.disabled = stepIndex <= 1;
+  saveBtn.textContent = stepIndex === 1 ? 'Save And Verify' : 'Verify Step';
+  saveBtn.disabled = !step.ready || (stepIndex > 1 && !step.complete);
+  confirmBtn.disabled = !(stepIndex === 2 || stepIndex === 3) || !step.ready || step.confirmed;
+  confirmBtn.classList.toggle('success', stepIndex === 2 || stepIndex === 3);
   completeBtn.disabled = !onboarding.readyToComplete;
 }
 
@@ -1158,7 +1197,7 @@ async function saveSources() {
   }
 }
 
-async function saveEnvConfig() {
+async function saveEnvConfig({ silent = false } = {}) {
   try {
     state.envConfig = await api('/api/admin/env', {
       method: 'PUT',
@@ -1183,11 +1222,17 @@ async function saveEnvConfig() {
     });
     renderEnvSettings();
     await refreshAuthState();
-    await refreshBotRuntime();
-    if (state.activeGuildId) {
-      await refreshHome();
+    const onboarding = getOnboardingStatus();
+    if (onboarding.completed) {
+      await refreshBotRuntime();
+      if (state.activeGuildId) {
+        await refreshHome();
+      }
+    } else {
+      showOnboardingModal();
+      switchTab('settings');
     }
-    setStatus('Environment saved.', true);
+    if (!silent) setStatus('Environment saved.', true);
   } catch (error) {
     setStatus(error.message, false);
   }
@@ -1376,12 +1421,23 @@ async function applyUpdate() {
 
 function shouldAutoOpenOnboarding() {
   const onboarding = getOnboardingStatus();
-  if (onboarding.completed) return false;
-  try {
-    return localStorage.getItem(ONBOARDING_SKIP_STORAGE_KEY) !== '1';
-  } catch {
-    return true;
+  return !onboarding.completed;
+}
+
+async function runOnboardingStepAction(action) {
+  const payload = await api('/api/admin/onboarding/step', {
+    method: 'POST',
+    body: JSON.stringify({ action }),
+  });
+  if (state.envConfig && payload && payload.onboarding) {
+    state.envConfig.onboarding = payload.onboarding;
   }
+  if (state.auth && payload && payload.onboarding) {
+    state.auth.onboarding = payload.onboarding;
+  }
+  renderSetupStatusCard();
+  renderOnboardingStep();
+  return payload && payload.onboarding ? payload.onboarding : getOnboardingStatus();
 }
 
 async function completeOnboarding() {
@@ -1390,11 +1446,12 @@ async function completeOnboarding() {
     if (state.envConfig) {
       state.envConfig.onboarding = payload.onboarding;
     }
-    try {
-      localStorage.removeItem(ONBOARDING_SKIP_STORAGE_KEY);
-    } catch {}
+    if (state.auth) {
+      state.auth.onboarding = payload.onboarding;
+    }
     renderSetupStatusCard();
     hideOnboardingModal();
+    await refreshAll();
     setStatus('Setup marked complete.', true);
   } catch (error) {
     setStatus(error.message, false);
@@ -1403,15 +1460,9 @@ async function completeOnboarding() {
 
 async function resetOnboarding() {
   try {
-    const payload = await api('/api/admin/onboarding/reset', { method: 'POST' });
-    if (state.envConfig) {
-      state.envConfig.onboarding = payload.onboarding;
-    }
-    try {
-      localStorage.removeItem(ONBOARDING_SKIP_STORAGE_KEY);
-    } catch {}
-    renderSetupStatusCard();
-    showOnboardingModal(0);
+    await runOnboardingStepAction('reset');
+    showOnboardingModal();
+    switchTab('settings');
     setStatus('Setup marked incomplete.', true);
   } catch (error) {
     setStatus(error.message, false);
@@ -1420,8 +1471,15 @@ async function resetOnboarding() {
 
 async function refreshAll() {
   await refreshAuthState();
+  await refreshEnvConfig();
+  const onboarding = getOnboardingStatus();
+  if (!onboarding.completed) {
+    switchTab('settings');
+    showOnboardingModal();
+    return;
+  }
   await refreshAdapters();
-  await Promise.all([refreshSources(), refreshAbout(), refreshUpdater(), refreshEnvConfig(), refreshBotRuntime()]);
+  await Promise.all([refreshSources(), refreshAbout(), refreshUpdater(), refreshBotRuntime()]);
   if (state.activeGuildId) {
     await Promise.all([refreshHome(), refreshUsers()]);
   }
@@ -1466,7 +1524,7 @@ document.getElementById('addTracked').addEventListener('click', addTracked);
 document.getElementById('addSource').addEventListener('click', addSourceDraft);
 document.getElementById('saveSources').addEventListener('click', saveSources);
 document.getElementById('saveEnv').addEventListener('click', saveEnvConfig);
-document.getElementById('openOnboardingBtn').addEventListener('click', () => showOnboardingModal(state.onboardingStep || 0));
+document.getElementById('openOnboardingBtn').addEventListener('click', () => showOnboardingModal());
 document.getElementById('resetOnboardingBtn').addEventListener('click', resetOnboarding);
 document.getElementById('copyDashboardCallbackUrl').addEventListener('click', async () => {
   const value = String(document.getElementById('envDashboardCallbackUrl').value || '').trim();
@@ -1526,6 +1584,11 @@ document.getElementById('releaseMode').addEventListener('change', () => {
   renderUpdater();
 });
 document.getElementById('activeGuildSelect').addEventListener('change', async (event) => {
+  const onboarding = getOnboardingStatus();
+  if (!onboarding.completed) {
+    setStatus('Finish onboarding first.', false);
+    return;
+  }
   state.activeGuildId = String(event.target.value || '').trim();
   try {
     localStorage.setItem(GUILD_STORAGE_KEY, state.activeGuildId);
@@ -1547,27 +1610,35 @@ document.getElementById('activeGuildSelect').addEventListener('change', async (e
 document.getElementById('authLoginBtn').addEventListener('click', () => {
   window.location.href = '/auth/discord/login';
 });
-document.getElementById('onboardingPrevBtn').addEventListener('click', () => {
-  state.onboardingStep = Math.max(0, state.onboardingStep - 1);
-  renderOnboardingStep();
-});
-document.getElementById('onboardingNextBtn').addEventListener('click', () => {
-  state.onboardingStep = Math.min(2, state.onboardingStep + 1);
-  renderOnboardingStep();
+document.getElementById('onboardingPrevBtn').addEventListener('click', async () => {
+  try {
+    await runOnboardingStepAction('prev');
+  } catch (error) {
+    setStatus(error.message, false);
+  }
 });
 document.getElementById('onboardingSaveContinueBtn').addEventListener('click', async () => {
-  await saveEnvConfig();
-  state.onboardingStep = Math.min(2, state.onboardingStep + 1);
-  renderOnboardingStep();
+  try {
+    const onboarding = getOnboardingStatus();
+    if (Number(onboarding.currentStep || 1) === 1) {
+      await saveEnvConfig({ silent: true });
+    }
+    await runOnboardingStepAction('save_and_verify');
+    setStatus('Step verified.', true);
+  } catch (error) {
+    setStatus(error.message, false);
+  }
+});
+document.getElementById('onboardingConfirmBtn').addEventListener('click', async () => {
+  try {
+    await runOnboardingStepAction('confirm_external');
+    setStatus('External step confirmed.', true);
+  } catch (error) {
+    setStatus(error.message, false);
+  }
 });
 document.getElementById('onboardingCompleteBtn').addEventListener('click', completeOnboarding);
-document.getElementById('onboardingSkipBtn').addEventListener('click', () => {
-  try {
-    localStorage.setItem(ONBOARDING_SKIP_STORAGE_KEY, '1');
-  } catch {}
-  hideOnboardingModal();
-  setStatus('Onboarding skipped for this browser.', false);
-});
+document.getElementById('onboardingResetBtn').addEventListener('click', resetOnboarding);
 document.getElementById('logoutBtn').addEventListener('click', async () => {
   try {
     await api('/auth/logout', { method: 'POST' });
@@ -1585,10 +1656,10 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
       if (savedTab) {
         switchTab(savedTab);
       } else {
-        switchTab('home');
+        switchTab('settings');
       }
     } catch {
-      switchTab('home');
+      switchTab('settings');
     }
     await refreshAuthState();
     if (!state.auth.authenticated) {
@@ -1599,7 +1670,8 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
     hideAuthGate();
     await refreshAll();
     if (shouldAutoOpenOnboarding()) {
-      showOnboardingModal(0);
+      showOnboardingModal();
+      switchTab('settings');
       setStatus('Complete first-time setup using the onboarding wizard.', false);
       return;
     }

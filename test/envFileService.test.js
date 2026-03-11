@@ -124,6 +124,13 @@ test('computes onboarding readiness from bot, invite, and auth state', () => {
   assert.equal(config.onboarding.readiness.botConfigured, false);
   assert.equal(config.onboarding.readiness.botInviteReady, false);
   assert.equal(config.onboarding.readiness.dashboardAuthReady, false);
+  assert.equal(config.onboarding.currentStep, 1);
+  assert.equal(config.onboarding.confirmations.inviteConfirmed, false);
+  assert.equal(config.onboarding.confirmations.callbackConfirmed, false);
+  assert.equal(config.onboarding.steps.length, 3);
+  assert.equal(config.onboarding.steps[0].complete, false);
+  assert.equal(config.onboarding.steps[1].blockedReason, 'Complete Step 1 first.');
+  assert.equal(config.onboarding.steps[2].blockedReason, 'Complete Step 2 first.');
   assert.equal(config.onboarding.readyToComplete, false);
   assert.deepEqual(config.onboarding.missing, ['DISCORD_TOKEN', 'BOT_INVITE_READY', 'DASHBOARD_AUTH_READY']);
 });
@@ -136,6 +143,9 @@ test('persists onboarding completed flag and supports drift state', () => {
     DASHBOARD_PUBLIC_URL: 'https://example.com',
     DISCORD_AUTH_CLIENT_ID: '123456789012345678',
     DISCORD_AUTH_CLIENT_SECRET: 'secret',
+    DASHBOARD_ONBOARDING_INVITE_CONFIRMED: 'true',
+    DASHBOARD_ONBOARDING_CALLBACK_CONFIRMED: 'true',
+    DASHBOARD_ONBOARDING_STEP: '3',
     DASHBOARD_MANAGED_GUILD_IDS: '111111111111111111',
     DASHBOARD_SETUP_COMPLETED: 'true',
   });
@@ -143,6 +153,9 @@ test('persists onboarding completed flag and supports drift state', () => {
   let config = service.getDashboardEnvConfig();
   assert.equal(config.onboarding.completed, true);
   assert.equal(config.onboarding.readyToComplete, true);
+  assert.equal(config.onboarding.currentStep, 3);
+  assert.equal(config.onboarding.steps[1].complete, true);
+  assert.equal(config.onboarding.steps[2].complete, true);
 
   service.saveDashboardEnvConfig({
     DASHBOARD_SETUP_COMPLETED: 'true',
@@ -153,4 +166,39 @@ test('persists onboarding completed flag and supports drift state', () => {
   assert.equal(config.onboarding.completed, true);
   assert.equal(config.onboarding.readyToComplete, false);
   assert.equal(config.onboarding.readiness.dashboardAuthReady, false);
+  assert.equal(config.onboarding.steps[2].complete, false);
+});
+
+test('rejects malformed DASHBOARD_ONBOARDING_STEP', () => {
+  const { service } = loadEnvFileServiceWithTempFile();
+  assert.throws(
+    () =>
+      service.saveDashboardEnvConfig({
+        DASHBOARD_ONBOARDING_STEP: '4',
+      }),
+    /DASHBOARD_ONBOARDING_STEP/
+  );
+});
+
+test('computes step completion with external confirmations', () => {
+  const { service } = loadEnvFileServiceWithTempFile();
+  service.saveDashboardEnvConfig({
+    DISCORD_TOKEN: 'token',
+    DISCORD_CLIENT_ID: '123456789012345678',
+    DASHBOARD_PUBLIC_URL: 'https://example.com',
+    DISCORD_AUTH_CLIENT_ID: '123456789012345678',
+    DISCORD_AUTH_CLIENT_SECRET: 'secret',
+    DASHBOARD_MANAGED_GUILD_IDS: '111111111111111111',
+    DASHBOARD_ONBOARDING_STEP: '2',
+    DASHBOARD_ONBOARDING_INVITE_CONFIRMED: 'true',
+    DASHBOARD_ONBOARDING_CALLBACK_CONFIRMED: 'false',
+    DASHBOARD_SETUP_COMPLETED: 'false',
+  });
+
+  const config = service.getDashboardEnvConfig();
+  assert.equal(config.onboarding.steps[0].complete, true);
+  assert.equal(config.onboarding.steps[1].complete, true);
+  assert.equal(config.onboarding.steps[2].complete, false);
+  assert.equal(config.onboarding.steps[2].blockedReason, 'Confirm callback URL was added in Discord OAuth2 Redirects.');
+  assert.equal(config.onboarding.readyToComplete, false);
 });

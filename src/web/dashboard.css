@@ -235,6 +235,12 @@ button {
 }
 
 button:hover { background: linear-gradient(180deg, #3a73ab, #2f5d8b); }
+button:disabled,
+.tab-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+}
 
 button.warn {
   background: linear-gradient(180deg, #854444, #713939);

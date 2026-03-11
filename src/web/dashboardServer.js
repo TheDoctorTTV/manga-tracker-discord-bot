@@ -12,7 +12,12 @@ const {
   MIN_AUTO_CHECK_HOURS,
   MAX_AUTO_CHECK_HOURS,
 } = require('../config');
-const { getDashboardEnvConfig, getDashboardRuntimeConfig, saveDashboardEnvConfig } = require('../services/envFileService');
+const {
+  getDashboardEnvConfig,
+  getDashboardRuntimeConfig,
+  getNextOnboardingStep,
+  saveDashboardEnvConfig,
+} = require('../services/envFileService');
 const {
   randomToken,
   buildDiscordLoginUrl,
@@ -446,12 +451,28 @@ function startDashboardServer({ service, updater, botController }) {
     }
 
     try {
+      const envConfig = getDashboardEnvConfig();
+      const onboarding = envConfig.onboarding;
+      const onboardingUnlocked =
+        (req.method === 'GET' && pathName === '/api/admin/env') ||
+        (req.method === 'PUT' && pathName === '/api/admin/env') ||
+        (req.method === 'GET' && pathName === '/api/admin/onboarding/status') ||
+        (req.method === 'POST' && pathName === '/api/admin/onboarding/step') ||
+        (req.method === 'POST' && pathName === '/api/admin/onboarding/complete') ||
+        (req.method === 'POST' && pathName === '/api/admin/onboarding/reset');
+      if (!onboarding.completed && !onboardingUnlocked) {
+        sendJson(res, 423, {
+          error: 'Onboarding is incomplete. Complete setup in Settings before using other dashboard features.',
+          onboarding,
+        });
+        return;
+      }
+
       if (req.method === 'GET' && pathName === '/api/admin/home') {
         const guildId = resolveGuildContext(requestUrl, access);
         const summary = service.getAdminSummaryForGuild(guildId);
         const memoryRssMb = Math.round((process.memoryUsage().rss / 1024 / 1024) * 10) / 10;
         const botRuntime = botController ? botController.getStatus() : { status: 'unknown' };
-        const envConfig = getDashboardEnvConfig();
         sendJson(res, 200, {
           botStatus: botRuntime.status || 'unknown',
           botRuntime,
@@ -526,7 +547,7 @@ function startDashboardServer({ service, updater, botController }) {
       }
 
       if (req.method === 'GET' && pathName === '/api/admin/env') {
-        sendJson(res, 200, getDashboardEnvConfig());
+        sendJson(res, 200, envConfig);
         return;
       }
 
@@ -538,13 +559,86 @@ function startDashboardServer({ service, updater, botController }) {
       }
 
       if (req.method === 'GET' && pathName === '/api/admin/onboarding/status') {
-        const envConfig = getDashboardEnvConfig();
         sendJson(res, 200, { onboarding: envConfig.onboarding });
         return;
       }
 
+      if (req.method === 'POST' && pathName === '/api/admin/onboarding/step') {
+        const body = await getRequestBody(req);
+        const action = typeof body.action === 'string' ? body.action.trim().toLowerCase() : '';
+        let updates = {};
+        const current = envConfig.onboarding;
+        const stepIndex = current.currentStep;
+        const activeStep = Array.isArray(current.steps) ? current.steps.find((step) => step.index === stepIndex) : null;
+
+        if (action === 'reset') {
+          updates = {
+            DASHBOARD_SETUP_COMPLETED: 'false',
+            DASHBOARD_ONBOARDING_STEP: '1',
+            DASHBOARD_ONBOARDING_INVITE_CONFIRMED: 'false',
+            DASHBOARD_ONBOARDING_CALLBACK_CONFIRMED: 'false',
+          };
+        } else if (action === 'prev') {
+          updates = {
+            DASHBOARD_SETUP_COMPLETED: 'false',
+            DASHBOARD_ONBOARDING_STEP: String(Math.max(1, stepIndex - 1)),
+          };
+        } else if (action === 'confirm_external') {
+          if (!activeStep || (stepIndex !== 2 && stepIndex !== 3)) {
+            sendJson(res, 400, {
+              error: 'External confirmation is only valid for Step 2 or Step 3.',
+              onboarding: current,
+            });
+            return;
+          }
+          if (!activeStep.ready) {
+            sendJson(res, 400, { error: activeStep.blockedReason || 'Step requirements are incomplete.', onboarding: current });
+            return;
+          }
+          updates = {
+            DASHBOARD_SETUP_COMPLETED: 'false',
+            ...(stepIndex === 2
+              ? { DASHBOARD_ONBOARDING_INVITE_CONFIRMED: 'true' }
+              : { DASHBOARD_ONBOARDING_CALLBACK_CONFIRMED: 'true' }),
+          };
+          const postConfirm = saveDashboardEnvConfig(updates);
+          const nextOnboarding = postConfirm.onboarding;
+          const activePostConfirm = Array.isArray(nextOnboarding.steps)
+            ? nextOnboarding.steps.find((step) => step.index === nextOnboarding.currentStep)
+            : null;
+          if (activePostConfirm && activePostConfirm.complete && nextOnboarding.currentStep < 3) {
+            const advanced = saveDashboardEnvConfig({
+              DASHBOARD_ONBOARDING_STEP: String(Math.min(3, nextOnboarding.currentStep + 1)),
+            });
+            sendJson(res, 200, { onboarding: advanced.onboarding });
+            return;
+          }
+          sendJson(res, 200, { onboarding: nextOnboarding });
+          return;
+        } else if (action === 'save_and_verify') {
+          if (!activeStep) {
+            sendJson(res, 400, { error: 'Invalid onboarding step.', onboarding: current });
+            return;
+          }
+          if (!activeStep.complete) {
+            sendJson(res, 400, { error: activeStep.blockedReason || 'Step requirements are incomplete.', onboarding: current });
+            return;
+          }
+          updates = {
+            DASHBOARD_SETUP_COMPLETED: 'false',
+            DASHBOARD_ONBOARDING_STEP: String(Math.min(3, Math.max(getNextOnboardingStep(current), stepIndex + 1))),
+          };
+        } else {
+          sendJson(res, 400, { error: 'Invalid onboarding action.', onboarding: current });
+          return;
+        }
+
+        const updated = saveDashboardEnvConfig(updates);
+        sendJson(res, 200, { onboarding: updated.onboarding });
+        return;
+      }
+
       if (req.method === 'POST' && pathName === '/api/admin/onboarding/complete') {
-        const envConfig = getDashboardEnvConfig();
         if (!envConfig.onboarding.readyToComplete) {
           sendJson(res, 400, {
             error: 'Setup requirements are incomplete.',
@@ -552,13 +646,21 @@ function startDashboardServer({ service, updater, botController }) {
           });
           return;
         }
-        const updated = saveDashboardEnvConfig({ DASHBOARD_SETUP_COMPLETED: 'true' });
+        const updated = saveDashboardEnvConfig({
+          DASHBOARD_SETUP_COMPLETED: 'true',
+          DASHBOARD_ONBOARDING_STEP: '3',
+        });
         sendJson(res, 200, { onboarding: updated.onboarding });
         return;
       }
 
       if (req.method === 'POST' && pathName === '/api/admin/onboarding/reset') {
-        const updated = saveDashboardEnvConfig({ DASHBOARD_SETUP_COMPLETED: 'false' });
+        const updated = saveDashboardEnvConfig({
+          DASHBOARD_SETUP_COMPLETED: 'false',
+          DASHBOARD_ONBOARDING_STEP: '1',
+          DASHBOARD_ONBOARDING_INVITE_CONFIRMED: 'false',
+          DASHBOARD_ONBOARDING_CALLBACK_CONFIRMED: 'false',
+        });
         sendJson(res, 200, { onboarding: updated.onboarding });
         return;
       }

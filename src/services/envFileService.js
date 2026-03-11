@@ -19,6 +19,9 @@ const MANAGED_ENV_DEFAULTS = {
   DISCORD_AUTH_CLIENT_SECRET: '',
   DASHBOARD_MANAGED_GUILD_IDS: '',
   DASHBOARD_AUTH_SESSION_HOURS: '12',
+  DASHBOARD_ONBOARDING_STEP: '1',
+  DASHBOARD_ONBOARDING_INVITE_CONFIRMED: 'false',
+  DASHBOARD_ONBOARDING_CALLBACK_CONFIRMED: 'false',
   DASHBOARD_SETUP_COMPLETED: 'false',
 };
 
@@ -141,7 +144,11 @@ function getDashboardOnboardingConfig(values, oauthInvite, dashboardAuth) {
   const botConfigured = Boolean(String(values.DISCORD_TOKEN || '').trim());
   const botInviteReady = oauthInvite && oauthInvite.source !== 'unavailable';
   const dashboardAuthReady = Boolean(dashboardAuth && dashboardAuth.configured);
+  const inviteConfirmed = parseBooleanEnv(values.DASHBOARD_ONBOARDING_INVITE_CONFIRMED, false);
+  const callbackConfirmed = parseBooleanEnv(values.DASHBOARD_ONBOARDING_CALLBACK_CONFIRMED, false);
   const completed = parseBooleanEnv(values.DASHBOARD_SETUP_COMPLETED, false);
+  const stepRaw = Number.parseInt(String(values.DASHBOARD_ONBOARDING_STEP || '1').trim(), 10);
+  const currentStep = Number.isInteger(stepRaw) ? Math.max(1, Math.min(3, stepRaw)) : 1;
   const missing = [];
   const hints = [];
 
@@ -160,17 +167,86 @@ function getDashboardOnboardingConfig(values, oauthInvite, dashboardAuth) {
     );
   }
 
+  const steps = [
+    {
+      index: 1,
+      key: 'bot_token',
+      title: 'Step 1 of 3 • Bot Token',
+      body: 'Set DISCORD_TOKEN in Settings -> Environment and save.',
+      ready: botConfigured,
+      confirmed: true,
+      complete: botConfigured,
+      blockedReason: botConfigured ? '' : 'DISCORD_TOKEN is required.',
+    },
+    {
+      index: 2,
+      key: 'bot_invite',
+      title: 'Step 2 of 3 • Bot Invite',
+      body: 'Ensure Bot Invite URL is available in Home, invite the bot, then confirm this step.',
+      ready: botInviteReady,
+      confirmed: inviteConfirmed,
+      complete: botInviteReady && inviteConfirmed,
+      blockedReason: botInviteReady ? (inviteConfirmed ? '' : 'Confirm that you invited the bot.') : 'Bot Invite URL is not ready yet.',
+    },
+    {
+      index: 3,
+      key: 'dashboard_auth',
+      title: 'Step 3 of 3 • Dashboard Auth',
+      body:
+        'Set DASHBOARD_PUBLIC_URL, DISCORD_AUTH_CLIENT_ID, DISCORD_AUTH_CLIENT_SECRET, and DASHBOARD_MANAGED_GUILD_IDS. Add the computed callback URL in Discord OAuth2 Redirects, then confirm.',
+      ready: dashboardAuthReady,
+      confirmed: callbackConfirmed,
+      complete: dashboardAuthReady && callbackConfirmed,
+      blockedReason: dashboardAuthReady
+        ? callbackConfirmed
+          ? ''
+          : 'Confirm callback URL was added in Discord OAuth2 Redirects.'
+        : 'Dashboard auth fields are incomplete.',
+    },
+  ];
+
+  for (const step of steps) {
+    step.canAdvance = step.complete;
+  }
+
+  const step2BlockedByStep1 = !steps[0].complete;
+  const step3BlockedByStep2 = !steps[1].complete;
+  if (step2BlockedByStep1) {
+    steps[1].canAdvance = false;
+    steps[1].blockedReason = 'Complete Step 1 first.';
+  }
+  if (step3BlockedByStep2) {
+    steps[2].canAdvance = false;
+    steps[2].blockedReason = 'Complete Step 2 first.';
+  }
+
+  const readyToComplete = steps.every((step) => step.complete);
+
   return {
     completed,
+    currentStep,
+    confirmations: {
+      inviteConfirmed,
+      callbackConfirmed,
+    },
+    steps,
     readiness: {
       botConfigured,
       botInviteReady,
       dashboardAuthReady,
     },
-    readyToComplete: botConfigured && botInviteReady && dashboardAuthReady,
+    readyToComplete,
     missing,
     hints,
   };
+}
+
+function getNextOnboardingStep(onboarding) {
+  const steps = Array.isArray(onboarding?.steps) ? onboarding.steps : [];
+  for (const step of steps) {
+    if (!step.complete) return step.index;
+  }
+  return 3;
 }
 
 function getDashboardEnvConfig() {
@@ -242,10 +318,21 @@ function saveDashboardEnvConfig(nextValues) {
     if (key === 'DISCORD_OAUTH_GUILD_ID' && resolvedValue && !isNumericString(resolvedValue)) {
       throw new Error('DISCORD_OAUTH_GUILD_ID must be empty or a numeric guild ID');
     }
-    if (key === 'DASHBOARD_AUTH_ENABLED' || key === 'DASHBOARD_SETUP_COMPLETED') {
+    if (
+      key === 'DASHBOARD_AUTH_ENABLED' ||
+      key === 'DASHBOARD_SETUP_COMPLETED' ||
+      key === 'DASHBOARD_ONBOARDING_INVITE_CONFIRMED' ||
+      key === 'DASHBOARD_ONBOARDING_CALLBACK_CONFIRMED'
+    ) {
       const normalized = resolvedValue.toLowerCase();
       if (resolvedValue && !['1', '0', 'true', 'false', 'yes', 'no', 'on', 'off'].includes(normalized)) {
         throw new Error(`${key} must be true or false`);
+      }
+    }
+    if (key === 'DASHBOARD_ONBOARDING_STEP') {
+      const step = Number.parseInt(resolvedValue || '1', 10);
+      if (!Number.isInteger(step) || step < 1 || step > 3) {
+        throw new Error('DASHBOARD_ONBOARDING_STEP must be an integer between 1 and 3');
       }
     }
     if (key === 'DASHBOARD_PUBLIC_URL' && resolvedValue) {
@@ -305,5 +392,6 @@ module.exports = {
   ensureEnvFile,
   getDashboardEnvConfig,
   getDashboardRuntimeConfig,
+  getNextOnboardingStep,
   saveDashboardEnvConfig,
 };
