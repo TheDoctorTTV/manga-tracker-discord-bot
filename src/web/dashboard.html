@@ -9,6 +9,7 @@
 <body>
 <div class="app-shell">
   <aside class="panel sidebar">
+    <div class="brand-pill">Admin Console</div>
     <div class="title-block">
       <h1>Manga Tracker</h1>
       <p class="muted">Admin dashboard for bot management and user operations.</p>
@@ -24,7 +25,7 @@
 
   <main class="content">
     <div class="panel status-bar">
-      <div>
+      <div class="status-copy">
         <strong>Operations Hub</strong>
         <div class="muted">Live controls for sources, tracking, and updater state.</div>
       </div>
@@ -32,21 +33,30 @@
     </div>
 
     <section id="tab-home" class="panel tab-panel">
-    <h2>Home</h2>
+    <div class="section-head">
+      <h2>Home</h2>
+      <small>System health and quick metrics.</small>
+    </div>
     <div class="grid two" id="homeCards"></div>
     <div id="homeMeta" class="muted"></div>
     </section>
 
     <section id="tab-users" class="panel tab-panel hidden">
-    <h2>Users</h2>
-    <div class="user-layout">
-      <div>
+    <div class="section-head">
+      <h2>Users</h2>
+      <small>Manage user settings and tracked manga.</small>
+    </div>
+    <div id="userLayout" class="user-layout">
+      <div id="userListPanel" class="user-list-panel">
         <input id="userSearch" placeholder="Search by user id" />
         <button id="refreshUsers">Refresh</button>
         <div id="users" class="list"></div>
       </div>
-      <div>
-        <h3 id="selectedUserTitle">Select a user</h3>
+      <div id="userDetailPanel" class="user-detail-panel hidden">
+        <div class="row detail-head-row">
+          <h3 id="selectedUserTitle">Manage user</h3>
+          <button id="closeUserDetails" type="button">Back To User List</button>
+        </div>
         <div id="userMeta" class="muted"></div>
 
         <h3>User Settings</h3>
@@ -71,7 +81,10 @@
     </section>
 
     <section id="tab-settings" class="panel tab-panel hidden">
-    <h2>Settings</h2>
+    <div class="section-head">
+      <h2>Settings</h2>
+      <small>Configure sources and runtime environment values.</small>
+    </div>
     <h3>Sources</h3>
     <small>Add or remove sources used by the bot.</small>
 
@@ -81,8 +94,10 @@
     </div>
 
     <div id="sourcesList"></div>
-    <button id="addSource">Add Source</button>
-    <button id="saveSources">Save Sources</button>
+    <div class="row action-row">
+      <button id="addSource">Add Source</button>
+      <button id="saveSources">Save Sources</button>
+    </div>
 
     <h3 style="margin-top:12px;">Environment</h3>
     <small>Saved to the bot environment file. Restart the bot after changing values.</small>
@@ -110,7 +125,10 @@
     </section>
 
     <section id="tab-about" class="panel tab-panel hidden">
-    <h2>About</h2>
+    <div class="section-head">
+      <h2>About</h2>
+      <small>Build metadata and update controls.</small>
+    </div>
     <div class="grid">
       <div class="card"><strong>Creator</strong><div id="aboutCreator"></div></div>
       <div class="card"><strong>Version</strong><div id="aboutVersion"></div></div>
@@ -126,15 +144,12 @@
       <option value="prerelease">Prerelease</option>
     </select>
     <label>Version</label>
-    <select id="releaseVersion">
-      <option value="">Latest for selected channel</option>
-    </select>
+    <select id="releaseVersion"></select>
     <div class="row">
       <button id="checkUpdate">Check For Updates</button>
       <button id="applyUpdate" class="success">Apply Latest Update</button>
     </div>
-    <input id="assetName" placeholder="Optional asset name override (leave blank for auto)" />
-    <pre id="updaterOutput">No updater action yet.</pre>
+    <pre id="updaterOutput" class="updater-output">No updater action yet.</pre>
     </section>
 
     <div id="statusLine" class="status"></div>
@@ -160,7 +175,16 @@ const state = {
 function setStatus(message, ok = true) {
   const el = document.getElementById('statusLine');
   el.textContent = message;
-  el.className = ok ? 'status ok' : 'status err';
+  el.classList.remove('ok', 'err');
+  el.classList.add('status', ok ? 'ok' : 'err');
+}
+
+function setUserDetailsVisible(visible) {
+  const panel = document.getElementById('userDetailPanel');
+  const layout = document.getElementById('userLayout');
+  if (!panel) return;
+  panel.classList.toggle('hidden', !visible);
+  if (layout) layout.classList.toggle('has-details', visible);
 }
 
 async function api(path, options = {}) {
@@ -413,23 +437,59 @@ function renderUpdater() {
   const out = document.getElementById('updaterOutput');
   const versionSelect = document.getElementById('releaseVersion');
   const modeSelect = document.getElementById('releaseMode');
+  const safeMode =
+    (modeSelect && modeSelect.value === 'prerelease') || state.releaseMode === 'prerelease'
+      ? 'prerelease'
+      : 'release';
 
-  if (modeSelect && modeSelect.value !== state.releaseMode) {
-    modeSelect.value = state.releaseMode;
+  if (modeSelect && modeSelect.value !== safeMode) {
+    modeSelect.value = safeMode;
   }
+  state.releaseMode = safeMode;
 
   if (versionSelect) {
     const currentValue = versionSelect.value;
-    versionSelect.innerHTML = '<option value="">Latest for selected channel</option>';
+    versionSelect.innerHTML = '';
     const releases = state.updater && Array.isArray(state.updater.availableReleases) ? state.updater.availableReleases : [];
-    for (const release of releases) {
+    const channelReleases = releases.filter((release) => (safeMode === 'prerelease' ? release.prerelease : !release.prerelease));
+
+    const datedReleases = channelReleases
+      .map((release) => ({
+        release,
+        ts: Date.parse(release.publishedAt || release.createdAt || release.releasedAt || ''),
+      }))
+      .sort((a, b) => {
+        const aValid = Number.isFinite(a.ts);
+        const bValid = Number.isFinite(b.ts);
+        if (aValid && bValid) return b.ts - a.ts;
+        if (aValid) return -1;
+        if (bValid) return 1;
+        return 0;
+      });
+
+    const sortedChannelReleases = datedReleases.map((item) => item.release);
+    const latestTag = sortedChannelReleases.length ? sortedChannelReleases[0].tagName : null;
+
+    if (!sortedChannelReleases.length) {
+      const emptyOption = document.createElement('option');
+      emptyOption.value = '';
+      emptyOption.textContent = 'No versions available';
+      emptyOption.disabled = true;
+      emptyOption.selected = true;
+      versionSelect.appendChild(emptyOption);
+    }
+
+    for (const release of sortedChannelReleases) {
       const option = document.createElement('option');
       option.value = release.tagName;
-      option.textContent = release.tagName + (release.prerelease ? ' (prerelease)' : '');
+      option.textContent = release.tagName + (release.tagName === latestTag ? ' (latest)' : '');
       versionSelect.appendChild(option);
     }
-    if (currentValue && releases.some((r) => r.tagName === currentValue)) {
+
+    if (currentValue && sortedChannelReleases.some((r) => r.tagName === currentValue)) {
       versionSelect.value = currentValue;
+    } else if (latestTag) {
+      versionSelect.value = latestTag;
     }
   }
 
@@ -473,7 +533,7 @@ function renderUpdater() {
   lines.push('  Binary path: ' + (state.updater.updaterState ? state.updater.updaterState.binaryPath : 'n/a'));
   lines.push('  Releases page: ' + (state.updater.updaterState ? state.updater.updaterState.releasesPageUrl : 'n/a'));
 
-  out.textContent = lines.join('\\n');
+  out.textContent = lines.join('\n');
 }
 
 async function refreshHome() {
@@ -484,6 +544,14 @@ async function refreshHome() {
 async function refreshUsers() {
   const payload = await api('/api/users');
   state.users = payload.users;
+  if (state.selectedUserId && !state.users.some((user) => user.userId === state.selectedUserId)) {
+    state.selectedUserId = null;
+    state.selectedUserData = null;
+    setUserDetailsVisible(false);
+    document.getElementById('selectedUserTitle').textContent = 'Manage user';
+    document.getElementById('userMeta').textContent = '';
+    document.getElementById('trackedList').innerHTML = '';
+  }
   renderUsers();
 }
 
@@ -506,7 +574,7 @@ async function refreshAbout() {
 
 async function refreshUpdater() {
   state.updater = await api('/api/admin/updater/status');
-  if (state.updater && state.updater.releaseMode) {
+  if (state.updater && (state.updater.releaseMode === 'prerelease' || state.updater.releaseMode === 'release')) {
     state.releaseMode = state.updater.releaseMode;
   }
   renderUpdater();
@@ -529,6 +597,7 @@ async function selectUser(userId) {
   document.getElementById('preferredSource').value = payload.user.preferredSource;
   document.getElementById('autoHours').value = payload.user.autoCheckIntervalHours;
 
+  setUserDetailsVisible(true);
   renderUsers();
   renderTracked();
 }
@@ -562,9 +631,10 @@ async function deleteUser() {
     setStatus('User deleted.', true);
     state.selectedUserId = null;
     state.selectedUserData = null;
-    document.getElementById('selectedUserTitle').textContent = 'Select a user';
+    document.getElementById('selectedUserTitle').textContent = 'Manage user';
     document.getElementById('userMeta').textContent = '';
     document.getElementById('trackedList').innerHTML = '';
+    setUserDetailsVisible(false);
     await refreshAll();
   } catch (error) {
     setStatus(error.message, false);
@@ -680,7 +750,6 @@ async function checkForUpdates() {
 }
 
 async function applyUpdate() {
-  const assetName = document.getElementById('assetName').value.trim();
   const releaseMode = document.getElementById('releaseMode').value;
   const selectedTag = document.getElementById('releaseVersion').value.trim();
   state.releaseMode = releaseMode === 'prerelease' ? 'prerelease' : 'release';
@@ -690,7 +759,6 @@ async function applyUpdate() {
     state.updater = await api('/api/admin/updater/apply', {
       method: 'POST',
       body: JSON.stringify({
-        assetName: assetName || null,
         releaseMode: state.releaseMode,
         tagName: selectedTag || null,
       }),
@@ -721,6 +789,16 @@ document.getElementById('refreshUsers').addEventListener('click', async () => {
   }
 });
 
+document.getElementById('closeUserDetails').addEventListener('click', () => {
+  state.selectedUserId = null;
+  state.selectedUserData = null;
+  document.getElementById('selectedUserTitle').textContent = 'Manage user';
+  document.getElementById('userMeta').textContent = '';
+  document.getElementById('trackedList').innerHTML = '';
+  renderUsers();
+  setUserDetailsVisible(false);
+});
+
 document.getElementById('userSearch').addEventListener('input', (event) => {
   state.userSearch = event.target.value || '';
   renderUsers();
@@ -734,10 +812,10 @@ document.getElementById('saveSources').addEventListener('click', saveSources);
 document.getElementById('saveEnv').addEventListener('click', saveEnvConfig);
 document.getElementById('checkUpdate').addEventListener('click', checkForUpdates);
 document.getElementById('applyUpdate').addEventListener('click', applyUpdate);
-document.getElementById('releaseMode').addEventListener('change', async (event) => {
-  state.releaseMode = event.target.value === 'prerelease' ? 'prerelease' : 'release';
+document.getElementById('releaseMode').addEventListener('change', () => {
+  state.releaseMode = document.getElementById('releaseMode').value === 'prerelease' ? 'prerelease' : 'release';
   document.getElementById('releaseVersion').value = '';
-  await checkForUpdates();
+  renderUpdater();
 });
 
 (async () => {
