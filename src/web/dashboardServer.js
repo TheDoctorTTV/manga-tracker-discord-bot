@@ -716,6 +716,7 @@ function startDashboardServer({ service, updater, botController }) {
         }
         const updated = saveDashboardEnvConfig({
           DASHBOARD_SETUP_COMPLETED: 'true',
+          DASHBOARD_AUTH_ENABLED: 'true',
           DASHBOARD_ONBOARDING_STEP: '3',
         });
         sendJson(res, 200, { onboarding: updated.onboarding });
