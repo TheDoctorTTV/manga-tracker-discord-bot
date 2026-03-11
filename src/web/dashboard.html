@@ -358,7 +358,7 @@ async function api(path, options = {}) {
       }
     }
     if (response.status === 401) {
-      showAuthGate('Session expired or not authenticated. Continue with Discord to access the dashboard.');
+      window.location.replace('/login');
     }
     const error = new Error(message);
     error.status = response.status;
@@ -1524,7 +1524,9 @@ document.getElementById('addTracked').addEventListener('click', addTracked);
 document.getElementById('addSource').addEventListener('click', addSourceDraft);
 document.getElementById('saveSources').addEventListener('click', saveSources);
 document.getElementById('saveEnv').addEventListener('click', saveEnvConfig);
-document.getElementById('openOnboardingBtn').addEventListener('click', () => showOnboardingModal());
+document.getElementById('openOnboardingBtn').addEventListener('click', () => {
+  window.location.href = '/onboarding';
+});
 document.getElementById('resetOnboardingBtn').addEventListener('click', resetOnboarding);
 document.getElementById('copyDashboardCallbackUrl').addEventListener('click', async () => {
   const value = String(document.getElementById('envDashboardCallbackUrl').value || '').trim();
@@ -1642,7 +1644,7 @@ document.getElementById('onboardingResetBtn').addEventListener('click', resetOnb
 document.getElementById('logoutBtn').addEventListener('click', async () => {
   try {
     await api('/auth/logout', { method: 'POST' });
-    showAuthGate('You are logged out. Authenticate with Discord to continue.');
+    window.location.href = '/login';
     setStatus('Logged out.', true);
   } catch (error) {
     setStatus(error.message, false);
@@ -1663,16 +1665,12 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
     }
     await refreshAuthState();
     if (!state.auth.authenticated) {
-      showAuthGate(state.auth.reason || 'Authenticate with Discord to access the admin dashboard.');
-      setStatus(state.auth.reason || 'Login required.', false);
+      window.location.replace('/login');
       return;
     }
-    hideAuthGate();
     await refreshAll();
     if (shouldAutoOpenOnboarding()) {
-      showOnboardingModal();
-      switchTab('settings');
-      setStatus('Complete first-time setup using the onboarding wizard.', false);
+      window.location.replace('/onboarding');
       return;
     }
     setStatus('Admin dashboard ready.', true);

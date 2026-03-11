@@ -130,6 +130,8 @@ function formatUptime(seconds) {
 }
 
 const DASHBOARD_HTML_PATH = path.join(__dirname, 'dashboard.html');
+const ONBOARDING_HTML_PATH = path.join(__dirname, 'onboarding.html');
+const LOGIN_HTML_PATH = path.join(__dirname, 'login.html');
 const DASHBOARD_CSS_PATH = path.join(__dirname, 'dashboard.css');
 const DASHBOARD_ICON_CANDIDATES = [
   path.resolve(process.cwd(), 'WebsiteLogo.ico'),
@@ -139,6 +141,8 @@ const DASHBOARD_ICON_CANDIDATES = [
 ];
 
 let dashboardHtmlTemplate = null;
+let onboardingHtmlTemplate = null;
+let loginHtmlTemplate = null;
 let dashboardCss = null;
 let dashboardIcon = undefined;
 
@@ -149,6 +153,14 @@ function loadDashboardAssets() {
 
   if (dashboardCss === null) {
     dashboardCss = fs.readFileSync(DASHBOARD_CSS_PATH, 'utf8');
+  }
+
+  if (onboardingHtmlTemplate === null) {
+    onboardingHtmlTemplate = fs.readFileSync(ONBOARDING_HTML_PATH, 'utf8');
+  }
+
+  if (loginHtmlTemplate === null) {
+    loginHtmlTemplate = fs.readFileSync(LOGIN_HTML_PATH, 'utf8');
   }
 
   if (dashboardIcon === undefined) {
@@ -162,6 +174,16 @@ function getDashboardHtml() {
   return dashboardHtmlTemplate
     .replace(/\$\{MIN_AUTO_CHECK_HOURS\}/g, String(MIN_AUTO_CHECK_HOURS))
     .replace(/\$\{MAX_AUTO_CHECK_HOURS\}/g, String(MAX_AUTO_CHECK_HOURS));
+}
+
+function getOnboardingHtml() {
+  loadDashboardAssets();
+  return onboardingHtmlTemplate;
+}
+
+function getLoginHtml() {
+  loadDashboardAssets();
+  return loginHtmlTemplate;
 }
 
 function getDashboardCss() {
@@ -216,6 +238,18 @@ function startDashboardServer({ service, updater, botController }) {
     const runtime = getDashboardRuntimeConfig();
     const local = isLocalRequest(req);
     const session = getSession(req);
+
+    if (!runtime.onboarding.completed && local) {
+      return {
+        runtime,
+        local,
+        session: null,
+        authenticated: true,
+        allowed: true,
+        bootstrapMode: true,
+        reason: null,
+      };
+    }
 
     if (!runtime.dashboardAuth.enabled || !runtime.dashboardAuth.configured) {
       if (local) {
@@ -287,9 +321,44 @@ function startDashboardServer({ service, updater, botController }) {
   const server = http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url, `http://${req.headers.host || `${DASHBOARD_HOST}:${DASHBOARD_PORT}`}`);
     const pathName = requestUrl.pathname;
+    const access = getAccessContext(req);
 
     if (req.method === 'GET' && pathName === '/') {
+      if (!access.runtime.onboarding.completed) {
+        sendRedirect(res, '/onboarding');
+        return;
+      }
+      if (!access.allowed) {
+        sendRedirect(res, '/login');
+        return;
+      }
       sendHtml(res, getDashboardHtml());
+      return;
+    }
+
+    if (req.method === 'GET' && pathName === '/onboarding') {
+      if (access.runtime.onboarding.completed) {
+        sendRedirect(res, '/');
+        return;
+      }
+      if (!access.allowed) {
+        sendRedirect(res, '/login');
+        return;
+      }
+      sendHtml(res, getOnboardingHtml());
+      return;
+    }
+
+    if (req.method === 'GET' && pathName === '/login') {
+      if (access.allowed) {
+        if (!access.runtime.onboarding.completed) {
+          sendRedirect(res, '/onboarding');
+          return;
+        }
+        sendRedirect(res, '/');
+        return;
+      }
+      sendHtml(res, getLoginHtml());
       return;
     }
 
@@ -428,7 +497,6 @@ function startDashboardServer({ service, updater, botController }) {
       return;
     }
 
-    const access = getAccessContext(req);
     if (req.method === 'GET' && pathName === '/api/admin/auth/me') {
       sendJson(res, 200, {
         authenticated: access.authenticated,

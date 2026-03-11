@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Manga Tracker Onboarding</title>
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="stylesheet" href="/dashboard.css" />
+</head>
+<body>
+  <main class="app-shell" style="grid-template-columns:minmax(0, 860px); min-height:100vh; place-content:center;">
+    <section class="panel tab-panel" style="padding:24px;">
+      <div class="section-head">
+        <h2>First-Time Dashboard Setup</h2>
+        <small id="stepMeta">Loading...</small>
+      </div>
+
+      <p id="stepBody" class="muted"></p>
+      <div id="stepState" class="status err" style="margin-top:10px;"></div>
+
+      <div id="step1Fields" class="grid hidden" style="margin-top:12px;">
+        <div class="card">
+          <strong>DISCORD_TOKEN</strong>
+          <input id="envDiscordToken" type="password" placeholder="Bot token" autocomplete="off" />
+          <small>Required for bot startup.</small>
+        </div>
+      </div>
+
+      <div id="step2Fields" class="grid two hidden" style="margin-top:12px;">
+        <div class="card">
+          <strong>DISCORD_CLIENT_ID</strong>
+          <input id="envDiscordClientId" placeholder="123456789012345678" />
+        </div>
+        <div class="card">
+          <strong>OAUTH_URL (Optional Override)</strong>
+          <input id="envOauthUrl" placeholder="discord_oauth_url" />
+        </div>
+        <div class="card" style="grid-column: 1 / -1;">
+          <strong>Bot Invite URL</strong>
+          <input id="inviteUrl" readonly placeholder="Save DISCORD_CLIENT_ID to generate invite URL" />
+          <div class="row action-row">
+            <button id="copyInviteUrl" type="button">Copy Invite URL</button>
+            <button id="openInviteUrl" type="button">Open Invite URL</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="step3Fields" class="grid two hidden" style="margin-top:12px;">
+        <div class="card">
+          <strong>DASHBOARD_PUBLIC_URL</strong>
+          <input id="envDashboardPublicUrl" placeholder="https://your-hostname:9898" />
+        </div>
+        <div class="card">
+          <strong>DISCORD_AUTH_CLIENT_ID</strong>
+          <input id="envDiscordAuthClientId" placeholder="123456789012345678" />
+        </div>
+        <div class="card">
+          <strong>DISCORD_AUTH_CLIENT_SECRET</strong>
+          <input id="envDiscordAuthClientSecret" type="password" placeholder="Discord OAuth client secret" autocomplete="off" />
+        </div>
+        <div class="card">
+          <strong>DASHBOARD_MANAGED_GUILD_IDS</strong>
+          <input id="envDashboardManagedGuildIds" placeholder="111111111111111111,222222222222222222" />
+        </div>
+        <div class="card" style="grid-column: 1 / -1;">
+          <strong>Computed OAuth Callback URL</strong>
+          <input id="callbackUrl" readonly placeholder="Set DASHBOARD_PUBLIC_URL to compute callback" />
+          <div class="row action-row">
+            <button id="copyCallbackUrl" type="button">Copy Callback URL</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="row action-row" style="margin-top:14px;">
+        <button id="prevBtn" type="button">Previous</button>
+        <button id="saveVerifyBtn" class="success" type="button">Save And Verify</button>
+        <button id="confirmExternalBtn" type="button">Confirm External Step</button>
+      </div>
+      <div class="row action-row">
+        <button id="resetBtn" class="warn" type="button">Reset Setup Progress</button>
+        <button id="completeBtn" class="success" type="button">Mark Setup Complete</button>
+      </div>
+
+      <div id="statusLine" class="status"></div>
+    </section>
+  </main>
+<script>
+const state = {
+  envConfig: null,
+  onboarding: null,
+};
+
+function setStatus(message, ok = true) {
+  const el = document.getElementById('statusLine');
+  el.textContent = message;
+  el.classList.remove('ok', 'err');
+  el.classList.add('status', ok ? 'ok' : 'err');
+}
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload.error || response.statusText);
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
+}
+
+function activeStep() {
+  const onboarding = state.onboarding || {};
+  const steps = Array.isArray(onboarding.steps) ? onboarding.steps : [];
+  const index = Number(onboarding.currentStep || 1);
+  return steps.find((step) => step.index === index) || null;
+}
+
+function render() {
+  const onboarding = state.onboarding || {};
+  const step = activeStep();
+  if (!step) return;
+
+  document.getElementById('stepMeta').textContent = step.title;
+  document.getElementById('stepBody').textContent = step.body;
+  document.getElementById('stepState').textContent =
+    'Readiness: ' + (step.ready ? 'ready' : 'not ready') +
+    ' • Confirmed: ' + (step.confirmed ? 'yes' : 'no') +
+    ' • Complete: ' + (step.complete ? 'yes' : 'no') +
+    (step.blockedReason ? ' • ' + step.blockedReason : '');
+
+  document.getElementById('step1Fields').classList.toggle('hidden', step.index !== 1);
+  document.getElementById('step2Fields').classList.toggle('hidden', step.index !== 2);
+  document.getElementById('step3Fields').classList.toggle('hidden', step.index !== 3);
+
+  document.getElementById('prevBtn').disabled = step.index <= 1;
+  document.getElementById('saveVerifyBtn').disabled = !step.ready || (step.index > 1 && !step.complete);
+  document.getElementById('confirmExternalBtn').disabled = !(step.index === 2 || step.index === 3) || !step.ready || step.confirmed;
+  document.getElementById('completeBtn').disabled = !Boolean(onboarding.readyToComplete);
+
+  const values = state.envConfig && state.envConfig.values ? state.envConfig.values : {};
+  document.getElementById('envDiscordToken').value = values.DISCORD_TOKEN || '';
+  document.getElementById('envDiscordClientId').value = values.DISCORD_CLIENT_ID || '';
+  document.getElementById('envOauthUrl').value = values.OAUTH_URL || '';
+  document.getElementById('envDashboardPublicUrl').value = values.DASHBOARD_PUBLIC_URL || '';
+  document.getElementById('envDiscordAuthClientId').value = values.DISCORD_AUTH_CLIENT_ID || '';
+  document.getElementById('envDiscordAuthClientSecret').value = values.DISCORD_AUTH_CLIENT_SECRET || '';
+  document.getElementById('envDashboardManagedGuildIds').value = values.DASHBOARD_MANAGED_GUILD_IDS || '';
+  document.getElementById('inviteUrl').value = (state.envConfig && state.envConfig.oauthInvite && state.envConfig.oauthInvite.url) || '';
+  document.getElementById('callbackUrl').value = (state.envConfig && state.envConfig.dashboardAuth && state.envConfig.dashboardAuth.callbackUrl) || '';
+}
+
+async function refreshState() {
+  const auth = await api('/api/admin/auth/me');
+  if (!auth.authenticated && !auth.bootstrapMode) {
+    window.location.replace('/login');
+    return;
+  }
+  state.envConfig = await api('/api/admin/env');
+  state.onboarding = state.envConfig.onboarding;
+  if (state.onboarding && state.onboarding.completed) {
+    window.location.replace('/');
+    return;
+  }
+  render();
+}
+
+async function saveStepEnv() {
+  const step = activeStep();
+  if (!step) return;
+  const values = {};
+  if (step.index === 1) {
+    values.DISCORD_TOKEN = document.getElementById('envDiscordToken').value;
+  } else if (step.index === 2) {
+    values.DISCORD_CLIENT_ID = document.getElementById('envDiscordClientId').value;
+    values.OAUTH_URL = document.getElementById('envOauthUrl').value;
+  } else if (step.index === 3) {
+    values.DASHBOARD_PUBLIC_URL = document.getElementById('envDashboardPublicUrl').value;
+    values.DISCORD_AUTH_CLIENT_ID = document.getElementById('envDiscordAuthClientId').value;
+    values.DISCORD_AUTH_CLIENT_SECRET = document.getElementById('envDiscordAuthClientSecret').value;
+    values.DASHBOARD_MANAGED_GUILD_IDS = document.getElementById('envDashboardManagedGuildIds').value;
+  }
+  state.envConfig = await api('/api/admin/env', {
+    method: 'PUT',
+    body: JSON.stringify({ values }),
+  });
+  state.onboarding = state.envConfig.onboarding;
+}
+
+async function stepAction(action) {
+  const payload = await api('/api/admin/onboarding/step', {
+    method: 'POST',
+    body: JSON.stringify({ action }),
+  });
+  state.onboarding = payload.onboarding;
+  await refreshState();
+}
+
+document.getElementById('prevBtn').addEventListener('click', async () => {
+  try {
+    await stepAction('prev');
+  } catch (error) {
+    setStatus(error.message || String(error), false);
+  }
+});
+
+document.getElementById('saveVerifyBtn').addEventListener('click', async () => {
+  try {
+    await saveStepEnv();
+    await stepAction('save_and_verify');
+    setStatus('Step verified.', true);
+  } catch (error) {
+    setStatus(error.message || String(error), false);
+  }
+});
+
+document.getElementById('confirmExternalBtn').addEventListener('click', async () => {
+  try {
+    await stepAction('confirm_external');
+    setStatus('External step confirmed.', true);
+  } catch (error) {
+    setStatus(error.message || String(error), false);
+  }
+});
+
+document.getElementById('resetBtn').addEventListener('click', async () => {
+  try {
+    await stepAction('reset');
+    setStatus('Setup reset.', true);
+  } catch (error) {
+    setStatus(error.message || String(error), false);
+  }
+});
+
+document.getElementById('completeBtn').addEventListener('click', async () => {
+  try {
+    const payload = await api('/api/admin/onboarding/complete', { method: 'POST' });
+    state.onboarding = payload.onboarding;
+    setStatus('Setup complete. Redirecting...', true);
+    window.location.replace('/');
+  } catch (error) {
+    setStatus(error.message || String(error), false);
+  }
+});
+
+document.getElementById('copyInviteUrl').addEventListener('click', async () => {
+  const value = String(document.getElementById('inviteUrl').value || '').trim();
+  if (!value) return setStatus('Invite URL is not available yet.', false);
+  try {
+    await navigator.clipboard.writeText(value);
+    setStatus('Invite URL copied.', true);
+  } catch (error) {
+    setStatus(error.message || String(error), false);
+  }
+});
+
+document.getElementById('openInviteUrl').addEventListener('click', () => {
+  const value = String(document.getElementById('inviteUrl').value || '').trim();
+  if (!value) return setStatus('Invite URL is not available yet.', false);
+  window.open(value, '_blank', 'noopener,noreferrer');
+});
+
+document.getElementById('copyCallbackUrl').addEventListener('click', async () => {
+  const value = String(document.getElementById('callbackUrl').value || '').trim();
+  if (!value) return setStatus('Callback URL is not available yet.', false);
+  try {
+    await navigator.clipboard.writeText(value);
+    setStatus('Callback URL copied.', true);
+  } catch (error) {
+    setStatus(error.message || String(error), false);
+  }
+});
+
+(async () => {
+  try {
+    await refreshState();
+    setStatus('Complete setup steps to unlock the dashboard.', false);
+  } catch (error) {
+    setStatus(error.message || String(error), false);
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Manga Tracker Login</title>
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="stylesheet" href="/dashboard.css" />
+</head>
+<body>
+  <main class="app-shell" style="grid-template-columns: minmax(0, 720px); min-height: 100vh; place-content: center;">
+    <section class="panel tab-panel" style="padding:24px;">
+      <div class="section-head">
+        <h2>Dashboard Login</h2>
+        <small>Authenticate with Discord to continue.</small>
+      </div>
+      <p id="loginReason" class="muted">Checking login state...</p>
+      <div class="row action-row">
+        <button id="continueDiscord" class="success" type="button">Continue With Discord</button>
+      </div>
+      <div id="statusLine" class="status"></div>
+    </section>
+  </main>
+<script>
+function setStatus(message, ok = true) {
+  const el = document.getElementById('statusLine');
+  el.textContent = message;
+  el.classList.remove('ok', 'err');
+  el.classList.add('status', ok ? 'ok' : 'err');
+}
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload.error || response.statusText);
+    error.status = response.status;
+    throw error;
+  }
+  return payload;
+}
+
+document.getElementById('continueDiscord').addEventListener('click', () => {
+  window.location.href = '/auth/discord/login';
+});
+
+(async () => {
+  try {
+    const auth = await api('/api/admin/auth/me');
+    if (auth && auth.authenticated) {
+      if (auth.onboarding && auth.onboarding.completed === false) {
+        window.location.replace('/onboarding');
+        return;
+      }
+      window.location.replace('/');
+      return;
+    }
+    document.getElementById('loginReason').textContent =
+      (auth && auth.reason) || 'Authenticate with Discord to access the admin dashboard.';
+    setStatus('Login required.', false);
+  } catch (error) {
+    setStatus(error.message || String(error), false);
+  }
+})();
+</script>
+</body>
+</html>
