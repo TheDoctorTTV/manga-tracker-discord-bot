@@ -155,9 +155,12 @@ Use the **About** tab in the admin dashboard:
 3. A detached updater worker replaces the binary and starts the new binary process.
 
 Optional updater env vars:
-- `GITHUB_TOKEN` (for higher GitHub API rate limits/private release access)
 - `BOT_UPDATE_BINARY_PATH` (override binary file path)
 - `BOT_UPDATE_ASSET_NAME` (force a specific release asset)
+
+In the dashboard About tab updater:
+- Choose `Release` or `Release + Prerelease`.
+- Pick a specific version from the version dropdown (or keep latest).
 
 ## Troubleshooting
 

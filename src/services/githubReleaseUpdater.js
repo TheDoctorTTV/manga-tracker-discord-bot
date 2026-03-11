@@ -151,24 +151,18 @@ class GitHubReleaseUpdater {
     currentVersion,
     binaryPath = process.env.BOT_UPDATE_BINARY_PATH || process.execPath,
     assetName = process.env.BOT_UPDATE_ASSET_NAME || '',
-    githubToken = process.env.GITHUB_TOKEN || '',
   }) {
     this.repoUrl = repoUrl;
     this.repoSlug = parseRepoSlug(repoUrl);
     this.currentVersion = currentVersion;
     this.binaryPath = path.resolve(binaryPath);
     this.assetName = assetName.trim();
-    this.githubToken = githubToken.trim();
-  }
-
-  getHeaders() {
-    if (!this.githubToken) return {};
-    return { Authorization: `Bearer ${this.githubToken}` };
   }
 
   getState() {
     return {
       repoSlug: this.repoSlug,
+      releasesPageUrl: this.repoSlug ? `https://github.com/${this.repoSlug}/releases` : null,
       currentVersion: this.currentVersion,
       binaryPath: this.binaryPath,
       runningAsBinary: path.basename(this.binaryPath).toLowerCase() !== 'node',
@@ -176,19 +170,22 @@ class GitHubReleaseUpdater {
   }
 
   async fetchLatestRelease() {
-    if (!this.repoSlug) {
-      throw new Error('Invalid GitHub repo URL/slug configuration');
+    const releases = await this.fetchReleases({ includePrerelease: false, limit: 1 });
+    if (releases.length === 0) {
+      throw new Error('No releases found');
     }
+    return releases[0];
+  }
 
-    const url = `https://api.github.com/repos/${this.repoSlug}/releases/latest`;
-    const release = await httpRequestJson(url, this.getHeaders());
-
+  mapRelease(release) {
     return {
       tagName: release.tag_name,
       name: release.name,
       htmlUrl: release.html_url,
       publishedAt: release.published_at,
       body: release.body || '',
+      prerelease: release.prerelease === true,
+      draft: release.draft === true,
       assets: Array.isArray(release.assets)
         ? release.assets.map((asset) => ({
             id: asset.id,
@@ -199,6 +196,35 @@ class GitHubReleaseUpdater {
           }))
         : [],
     };
+  }
+
+  async fetchReleases({ includePrerelease = false, limit = 30 } = {}) {
+    if (!this.repoSlug) {
+      throw new Error('Invalid GitHub repo URL/slug configuration');
+    }
+
+    const perPage = Math.min(100, Math.max(1, limit));
+    const url = `https://api.github.com/repos/${this.repoSlug}/releases?per_page=${perPage}`;
+    const payload = await httpRequestJson(url);
+    const releases = Array.isArray(payload) ? payload : [];
+
+    return releases
+      .filter((release) => release && release.draft !== true)
+      .filter((release) => includePrerelease || release.prerelease !== true)
+      .map((release) => this.mapRelease(release));
+  }
+
+  async fetchReleaseByTag(tagName) {
+    if (!this.repoSlug) {
+      throw new Error('Invalid GitHub repo URL/slug configuration');
+    }
+    const encodedTag = encodeURIComponent(tagName);
+    const url = `https://api.github.com/repos/${this.repoSlug}/releases/tags/${encodedTag}`;
+    const release = await httpRequestJson(url);
+    if (!release || release.draft === true) {
+      throw new Error(`Release not found for tag: ${tagName}`);
+    }
+    return this.mapRelease(release);
   }
 
   pickReleaseAsset(release, requestedAssetName = '') {
@@ -232,8 +258,13 @@ class GitHubReleaseUpdater {
     return assets[0];
   }
 
-  async checkForUpdate() {
-    const release = await this.fetchLatestRelease();
+  async checkForUpdate({ includePrerelease = false, tagName = '' } = {}) {
+    const release = tagName ? await this.fetchReleaseByTag(tagName) : (await this.fetchReleases({ includePrerelease, limit: 1 }))[0];
+    if (!release) {
+      throw new Error('No matching release found');
+    }
+
+    const releases = await this.fetchReleases({ includePrerelease, limit: 30 });
     const latestVersion = normalizeVersion(release.tagName);
     const currentVersion = normalizeVersion(this.currentVersion);
 
@@ -242,11 +273,18 @@ class GitHubReleaseUpdater {
       latestVersion,
       updateAvailable: compareVersions(latestVersion, currentVersion) > 0,
       release,
+      releases: releases.map((item) => ({
+        tagName: item.tagName,
+        name: item.name,
+        prerelease: item.prerelease,
+        publishedAt: item.publishedAt,
+      })),
+      releaseMode: includePrerelease ? 'prerelease' : 'release',
       updaterState: this.getState(),
     };
   }
 
-  async applyUpdate({ assetName = '' } = {}) {
+  async applyUpdate({ assetName = '', includePrerelease = false, tagName = '' } = {}) {
     if (!this.getState().runningAsBinary) {
       throw new Error('Updater requires BOT_UPDATE_BINARY_PATH pointing to the bot binary when not running as a binary.');
     }
@@ -258,7 +296,7 @@ class GitHubReleaseUpdater {
 
     fs.accessSync(this.binaryPath, fs.constants.W_OK);
 
-    const check = await this.checkForUpdate();
+    const check = await this.checkForUpdate({ includePrerelease, tagName });
     if (!check.updateAvailable) {
       return {
         applied: false,
@@ -273,7 +311,7 @@ class GitHubReleaseUpdater {
     const tempPath = path.join(binaryDir, `${path.basename(this.binaryPath)}.download-${Date.now()}`);
     const backupPath = `${this.binaryPath}.bak`;
 
-    const download = await downloadFile(asset.browserDownloadUrl, tempPath, this.getHeaders());
+    const download = await downloadFile(asset.browserDownloadUrl, tempPath);
     if (!download.bytes) {
       throw new Error('Downloaded asset is empty');
     }
@@ -290,6 +328,8 @@ class GitHubReleaseUpdater {
       applied: true,
       updateAvailable: true,
       release: check.release,
+      releases: check.releases,
+      releaseMode: check.releaseMode,
       fromVersion: check.currentVersion,
       toVersion: check.latestVersion,
       asset: {

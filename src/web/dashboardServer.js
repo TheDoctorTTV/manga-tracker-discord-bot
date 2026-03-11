@@ -217,6 +217,15 @@ pre {
 
     <h3 style="margin-top:12px;">Updater</h3>
     <small>Checks GitHub Releases and applies binary updates in-place.</small>
+    <label>Release Channel</label>
+    <select id="releaseMode">
+      <option value="release">Release</option>
+      <option value="prerelease">Release + Prerelease</option>
+    </select>
+    <label>Version</label>
+    <select id="releaseVersion">
+      <option value="">Latest for selected channel</option>
+    </select>
     <div class="row">
       <button id="checkUpdate">Check For Updates</button>
       <button id="applyUpdate" class="success">Apply Latest Update</button>
@@ -240,6 +249,7 @@ const state = {
   userSearch: '',
   about: null,
   updater: null,
+  releaseMode: 'release',
 };
 
 function setStatus(message, ok = true) {
@@ -486,6 +496,28 @@ function renderAbout() {
 
 function renderUpdater() {
   const out = document.getElementById('updaterOutput');
+  const versionSelect = document.getElementById('releaseVersion');
+  const modeSelect = document.getElementById('releaseMode');
+
+  if (modeSelect && modeSelect.value !== state.releaseMode) {
+    modeSelect.value = state.releaseMode;
+  }
+
+  if (versionSelect) {
+    const currentValue = versionSelect.value;
+    versionSelect.innerHTML = '<option value="">Latest for selected channel</option>';
+    const releases = state.updater && Array.isArray(state.updater.availableReleases) ? state.updater.availableReleases : [];
+    for (const release of releases) {
+      const option = document.createElement('option');
+      option.value = release.tagName;
+      option.textContent = release.tagName + (release.prerelease ? ' (prerelease)' : '');
+      versionSelect.appendChild(option);
+    }
+    if (currentValue && releases.some((r) => r.tagName === currentValue)) {
+      versionSelect.value = currentValue;
+    }
+  }
+
   if (!state.updater) {
     out.textContent = 'No updater action yet.';
     return;
@@ -524,6 +556,7 @@ function renderUpdater() {
   lines.push('  Checking: ' + (state.updater.checking ? 'yes' : 'no'));
   lines.push('  Applying: ' + (state.updater.applying ? 'yes' : 'no'));
   lines.push('  Binary path: ' + (state.updater.updaterState ? state.updater.updaterState.binaryPath : 'n/a'));
+  lines.push('  Releases page: ' + (state.updater.updaterState ? state.updater.updaterState.releasesPageUrl : 'n/a'));
 
   out.textContent = lines.join('\\n');
 }
@@ -558,6 +591,9 @@ async function refreshAbout() {
 
 async function refreshUpdater() {
   state.updater = await api('/api/admin/updater/status');
+  if (state.updater && state.updater.releaseMode) {
+    state.releaseMode = state.updater.releaseMode;
+  }
   renderUpdater();
 }
 
@@ -683,8 +719,18 @@ async function saveSources() {
 }
 
 async function checkForUpdates() {
+  const releaseMode = document.getElementById('releaseMode').value;
+  const selectedTag = document.getElementById('releaseVersion').value.trim();
+  state.releaseMode = releaseMode === 'prerelease' ? 'prerelease' : 'release';
+
   try {
-    state.updater = await api('/api/admin/updater/check', { method: 'POST', body: '{}' });
+    state.updater = await api('/api/admin/updater/check', {
+      method: 'POST',
+      body: JSON.stringify({
+        includePrerelease: state.releaseMode === 'prerelease',
+        tagName: selectedTag || null,
+      }),
+    });
     renderUpdater();
     const updateAvailable = state.updater.lastCheck && state.updater.lastCheck.updateAvailable;
     setStatus(updateAvailable ? 'Update available.' : 'No update available.', true);
@@ -695,12 +741,19 @@ async function checkForUpdates() {
 
 async function applyUpdate() {
   const assetName = document.getElementById('assetName').value.trim();
+  const releaseMode = document.getElementById('releaseMode').value;
+  const selectedTag = document.getElementById('releaseVersion').value.trim();
+  state.releaseMode = releaseMode === 'prerelease' ? 'prerelease' : 'release';
   if (!window.confirm('Apply latest binary update now? The process will restart.')) return;
 
   try {
     state.updater = await api('/api/admin/updater/apply', {
       method: 'POST',
-      body: JSON.stringify({ assetName: assetName || null }),
+      body: JSON.stringify({
+        assetName: assetName || null,
+        includePrerelease: state.releaseMode === 'prerelease',
+        tagName: selectedTag || null,
+      }),
     });
     renderUpdater();
     setStatus('Update applied. Service restart requested.', true);
@@ -740,6 +793,11 @@ document.getElementById('addSource').addEventListener('click', addSourceDraft);
 document.getElementById('saveSources').addEventListener('click', saveSources);
 document.getElementById('checkUpdate').addEventListener('click', checkForUpdates);
 document.getElementById('applyUpdate').addEventListener('click', applyUpdate);
+document.getElementById('releaseMode').addEventListener('change', async (event) => {
+  state.releaseMode = event.target.value === 'prerelease' ? 'prerelease' : 'release';
+  document.getElementById('releaseVersion').value = '';
+  await checkForUpdates();
+});
 
 (async () => {
   try {
@@ -773,6 +831,8 @@ function startDashboardServer({ service, updater }) {
     lastCheck: null,
     lastApply: null,
     lastError: null,
+    availableReleases: [],
+    releaseMode: 'release',
   };
 
   function getUpdaterStatus() {
@@ -824,7 +884,7 @@ function startDashboardServer({ service, updater }) {
           creator: BOT_CREATOR,
           version: BOT_VERSION,
           repo: BOT_GITHUB_REPO,
-          updateSystem: 'Built-in updater uses a detached worker process to replace and restart the bot binary.',
+          updateSystem: 'Built-in updater uses the public GitHub Releases feed and a detached worker process to replace/restart the bot binary.',
         });
         return;
       }
@@ -844,10 +904,16 @@ function startDashboardServer({ service, updater }) {
           return;
         }
 
+        const body = await getRequestBody(req);
+        const includePrerelease = body.includePrerelease === true;
+        const tagName = typeof body.tagName === 'string' ? body.tagName.trim() : '';
+
         updaterState.checking = true;
         updaterState.lastError = null;
+        updaterState.releaseMode = includePrerelease ? 'prerelease' : 'release';
         try {
-          updaterState.lastCheck = await updater.checkForUpdate();
+          updaterState.lastCheck = await updater.checkForUpdate({ includePrerelease, tagName });
+          updaterState.availableReleases = Array.isArray(updaterState.lastCheck.releases) ? updaterState.lastCheck.releases : [];
         } catch (error) {
           updaterState.lastError = error.message;
           throw error;
@@ -871,17 +937,23 @@ function startDashboardServer({ service, updater }) {
 
         const body = await getRequestBody(req);
         const assetName = typeof body.assetName === 'string' ? body.assetName.trim() : '';
+        const includePrerelease = body.includePrerelease === true;
+        const tagName = typeof body.tagName === 'string' ? body.tagName.trim() : '';
 
         updaterState.applying = true;
         updaterState.lastError = null;
+        updaterState.releaseMode = includePrerelease ? 'prerelease' : 'release';
         try {
-          updaterState.lastApply = await updater.applyUpdate({ assetName });
+          updaterState.lastApply = await updater.applyUpdate({ assetName, includePrerelease, tagName });
           updaterState.lastCheck = {
             currentVersion: updaterState.lastApply.fromVersion,
             latestVersion: updaterState.lastApply.toVersion,
             updateAvailable: true,
             release: updaterState.lastApply.release,
           };
+          updaterState.availableReleases = Array.isArray(updaterState.lastApply.releases)
+            ? updaterState.lastApply.releases
+            : updaterState.availableReleases;
         } catch (error) {
           updaterState.lastError = error.message;
           throw error;
