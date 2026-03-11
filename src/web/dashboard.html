@@ -201,15 +201,13 @@
   </main>
 </div>
 
-<div id="updateConfirmModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="updateConfirmTitle">
+<div id="confirmModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
   <div class="modal-panel">
-    <h3 id="updateConfirmTitle">Apply Bot Update?</h3>
-    <p id="updateConfirmBody" class="muted">
-      This downloads the selected binary release, replaces the current bot binary, and restarts the service.
-    </p>
+    <h3 id="confirmModalTitle">Confirm Action</h3>
+    <p id="confirmModalBody" class="muted"></p>
     <div class="row action-row">
-      <button id="cancelUpdateConfirm" class="warn" type="button">Cancel</button>
-      <button id="confirmUpdateApply" class="success" type="button">Apply Update</button>
+      <button id="confirmModalCancel" class="warn" type="button">Cancel</button>
+      <button id="confirmModalAccept" class="success" type="button">Confirm</button>
     </div>
   </div>
 </div>
@@ -231,6 +229,7 @@ const state = {
   botRuntime: null,
   updaterAutoChecked: false,
   updateProgressTimer: null,
+  confirmAction: null,
 };
 
 function setStatus(message, ok = true) {
@@ -753,8 +752,13 @@ async function saveSettings() {
 
 async function deleteUser() {
   if (!state.selectedUserId) return setStatus('Select a user first.', false);
-
-  if (!window.confirm('Delete user ' + state.selectedUserId + ' and all tracked data?')) return;
+  const confirmed = await showConfirmModal({
+    title: 'Delete User?',
+    body: 'Delete user ' + state.selectedUserId + ' and all tracked data? This cannot be undone.',
+    confirmLabel: 'Delete User',
+    confirmClass: 'warn',
+  });
+  if (!confirmed) return;
 
   try {
     await api('/api/users/' + state.selectedUserId, { method: 'DELETE' });
@@ -898,21 +902,56 @@ async function checkForUpdates() {
   }
 }
 
-function openUpdateConfirmModal() {
-  const modal = document.getElementById('updateConfirmModal');
-  const body = document.getElementById('updateConfirmBody');
+function showConfirmModal({ title, body, confirmLabel, confirmClass = 'success' }) {
+  const modal = document.getElementById('confirmModal');
+  const titleEl = document.getElementById('confirmModalTitle');
+  const bodyEl = document.getElementById('confirmModalBody');
+  const acceptBtn = document.getElementById('confirmModalAccept');
+  const cancelBtn = document.getElementById('confirmModalCancel');
+
+  titleEl.textContent = title || 'Confirm Action';
+  bodyEl.textContent = body || '';
+  acceptBtn.textContent = confirmLabel || 'Confirm';
+  acceptBtn.className = confirmClass;
+  cancelBtn.className = 'warn';
+
+  return new Promise((resolve) => {
+    state.confirmAction = resolve;
+    modal.classList.remove('hidden');
+    acceptBtn.focus();
+  });
+}
+
+function settleConfirmModal(result) {
+  if (typeof state.confirmAction === 'function') {
+    const resolver = state.confirmAction;
+    state.confirmAction = null;
+    resolver(result);
+  }
+  closeConfirmModal();
+}
+
+function closeConfirmModal() {
+  const modal = document.getElementById('confirmModal');
+  modal.classList.add('hidden');
+}
+
+async function openUpdateConfirmModal() {
   const selectedTag = (document.getElementById('releaseVersion').value || '').trim();
   const channel = document.getElementById('releaseMode').value === 'prerelease' ? 'prerelease' : 'release';
-  body.textContent =
+  const body =
     'This downloads the selected binary, replaces the current executable, and restarts the service. ' +
     'Channel: ' +
     channel +
     (selectedTag ? ' • Version: ' + selectedTag : ' • Version: latest in channel');
-  modal.classList.remove('hidden');
-}
-
-function closeUpdateConfirmModal() {
-  document.getElementById('updateConfirmModal').classList.add('hidden');
+  const confirmed = await showConfirmModal({
+    title: 'Apply Bot Update?',
+    body,
+    confirmLabel: 'Apply Update',
+    confirmClass: 'success',
+  });
+  if (!confirmed) return;
+  await applyUpdate();
 }
 
 function setUpdateProgress(percent, label) {
@@ -940,7 +979,7 @@ async function applyUpdate() {
   const releaseMode = document.getElementById('releaseMode').value;
   const selectedTag = document.getElementById('releaseVersion').value.trim();
   state.releaseMode = releaseMode === 'prerelease' ? 'prerelease' : 'release';
-  closeUpdateConfirmModal();
+  closeConfirmModal();
   let progress = 10;
   setUpdateProgress(progress, 'Starting update request...');
   state.updateProgressTimer = setInterval(() => {
@@ -1037,8 +1076,18 @@ document.getElementById('stopBot').addEventListener('click', () => runBotAction(
 document.getElementById('restartBot').addEventListener('click', () => runBotAction('restart'));
 document.getElementById('checkUpdate').addEventListener('click', checkForUpdates);
 document.getElementById('applyUpdate').addEventListener('click', openUpdateConfirmModal);
-document.getElementById('cancelUpdateConfirm').addEventListener('click', closeUpdateConfirmModal);
-document.getElementById('confirmUpdateApply').addEventListener('click', applyUpdate);
+document.getElementById('confirmModalCancel').addEventListener('click', () => settleConfirmModal(false));
+document.getElementById('confirmModalAccept').addEventListener('click', () => settleConfirmModal(true));
+document.getElementById('confirmModal').addEventListener('click', (event) => {
+  if (event.target && event.target.id === 'confirmModal') {
+    settleConfirmModal(false);
+  }
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && state.confirmAction) {
+    settleConfirmModal(false);
+  }
+});
 document.getElementById('releaseMode').addEventListener('change', () => {
   state.releaseMode = document.getElementById('releaseMode').value === 'prerelease' ? 'prerelease' : 'release';
   document.getElementById('releaseVersion').value = '';
