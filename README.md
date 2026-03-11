@@ -2,15 +2,16 @@
 
 ## Overview
 
-Manga Tracker is an open-source Discord bot designed to help manga enthusiasts stay up-to-date with their favorite manga directly from [MangaDex](https://www.mangadex.org/). With Manga Tracker, users can track their favorite manga titles and receive updates conveniently through their DMs.
+Manga Tracker is an open-source Discord bot designed to help manga enthusiasts stay up-to-date with their favorite manga from supported sources like [MangaDex](https://www.mangadex.org/) and [Comix](https://comix.to/). With Manga Tracker, users can track their favorite manga titles and receive updates conveniently through their DMs.
 
 ## Features
 
-- Track any manga listed on MangaDex using the **public API** (no MangaDex token required).
-- Search MangaDex titles directly from Discord.
+- Track manga from supported sites (currently MangaDex and Comix).
+- Search titles directly from Discord using your preferred source.
 - Receive automatic DM updates on a custom interval (**6 hours to 7 days**).
 - Manually check updates at any time.
 - Export and import your tracked manga list to/from JSON files.
+- Configure supported manga source domains in `manga-sources.json`.
 
 ## Commands
 
@@ -18,8 +19,9 @@ Manga Tracker is an open-source Discord bot designed to help manga enthusiasts s
 | --------------- | ---------------------------------------------- |
 | `/checkupdates` | Manually check for updates on tracked manga.   |
 | `/setautocheck` | Set auto-check interval in hours (6 to 168).  |
+| `/preferredsource` | Set your preferred source via dropdown.     |
 | `/version`      | Display the current version of the bot.        |
-| `/searchmanga`  | Search MangaDex by title.                      |
+| `/searchmanga`  | Search by title using your preferred source.   |
 | `/addmanga`     | Add a manga to your tracking list by URL or ID.|
 | `/removemanga`  | Remove a manga from your tracking list.        |
 | `/listmanga`    | List all manga currently being tracked.        |
@@ -28,7 +30,7 @@ Manga Tracker is an open-source Discord bot designed to help manga enthusiasts s
 
 ## How It Works
 
-1. **Add Manga**: Use `/addmanga` and provide the MangaDex URL to add a manga to your tracking list.
+1. **Add Manga**: Use `/addmanga` and provide a supported manga URL (MangaDex or Comix) to add it to your tracking list.
 2. **Receive Updates**: The bot auto-checks on your configured interval and sends a DM only when a tracked manga has a new chapter.
 3. **Manage Your List**: Use commands like `/removemanga`, `/listmanga`, `/exportmanga`, and `/importmanga` to customize your experience.
 
