@@ -504,7 +504,7 @@ function renderUpdater() {
   lines.push('  Applying: ' + (state.updater.applying ? 'yes' : 'no'));
   lines.push('  Binary path: ' + (state.updater.updaterState ? state.updater.updaterState.binaryPath : 'n/a'));
 
-  out.textContent = lines.join('\n');
+  out.textContent = lines.join('\\n');
 }
 
 async function refreshHome() {
