@@ -151,17 +151,42 @@ It includes admin tabs for `Home`, `Users`, `Settings`, and `About`.
 
 ### Dashboard Discord OAuth Setup
 
-1. In Discord Developer Portal, open your app and add OAuth redirect URI:
-   - `https://your-domain-or-ip:9898/auth/discord/callback`
-   - (or `http://...` for local/non-TLS testing)
-2. In dashboard **Settings -> Dashboard Auth**, set:
+Choose one active dashboard base URL strategy (single active URL only):
+
+1. Tailscale/MagicDNS + port (recommended):
+   - Example base URL: `http://your-host-or-fqdn.tailnet.ts.net:9898`
+2. Custom domain/reverse proxy (optional):
+   - Example base URL: `https://dashboard.example.com`
+
+The app always uses one active base URL via `DASHBOARD_PUBLIC_URL`.
+
+OAuth callback formula:
+- `DASHBOARD_PUBLIC_URL + /auth/discord/callback`
+
+Setup steps:
+
+1. In dashboard **Settings -> Dashboard Auth**, set:
    - `DASHBOARD_PUBLIC_URL` (base dashboard URL)
    - `DISCORD_AUTH_CLIENT_ID`
    - `DISCORD_AUTH_CLIENT_SECRET`
    - `DASHBOARD_MANAGED_GUILD_IDS` (comma-separated guild IDs you manage)
    - `DASHBOARD_AUTH_SESSION_HOURS` (default `12`)
-3. Set `DASHBOARD_AUTH_ENABLED=true` and save environment.
-4. Login via Discord. Access is granted only if your Discord account has `ADMINISTRATOR` in at least one managed guild.
+2. Copy the **Computed OAuth Callback URL** from the dashboard.
+3. In Discord Developer Portal:
+   - Open your application.
+   - Go to **OAuth2 -> Redirects**.
+   - Add the exact callback URL.
+   - Save changes.
+4. Set `DASHBOARD_AUTH_ENABLED=true` and save environment.
+5. Login via Discord. Access is granted only if your Discord account has `ADMINISTRATOR` in at least one managed guild.
+
+Troubleshooting `redirect_uri_mismatch`:
+- Ensure the callback in Discord exactly matches computed callback URL (character-for-character).
+- Common mistakes:
+  - Missing `:9898` port for Tailscale URL.
+  - Wrong scheme (`http` vs `https`).
+  - Old/stale hostname after URL change.
+  - Extra trailing slash or path mismatch.
 
 ### Guild-scoped dashboard behavior
 

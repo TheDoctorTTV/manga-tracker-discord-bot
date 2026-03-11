@@ -167,6 +167,7 @@
       <div class="card">
         <strong>DASHBOARD_PUBLIC_URL</strong>
         <input id="envDashboardPublicUrl" placeholder="https://your-hostname:9898" />
+        <small>Single active dashboard base URL used for OAuth callback generation.</small>
       </div>
       <div class="card">
         <strong>DISCORD_AUTH_CLIENT_ID</strong>
@@ -184,6 +185,14 @@
         <strong>DASHBOARD_AUTH_SESSION_HOURS</strong>
         <input id="envDashboardAuthSessionHours" type="number" min="1" max="168" placeholder="12" />
       </div>
+    </div>
+    <div class="card">
+      <strong>Computed OAuth Callback URL</strong>
+      <input id="envDashboardCallbackUrl" readonly placeholder="Set DASHBOARD_PUBLIC_URL to generate callback URL" />
+      <div class="row action-row">
+        <button id="copyDashboardCallbackUrl" type="button">Copy Callback URL</button>
+      </div>
+      <small id="envDashboardCallbackMeta" class="muted">Add this exact URL to Discord Developer Portal -> OAuth2 -> Redirects.</small>
     </div>
     <div id="envMeta" class="muted"></div>
     <button id="saveEnv">Save Environment</button>
@@ -599,6 +608,21 @@ function renderEnvSettings() {
   document.getElementById('envDiscordAuthClientSecret').value = values.DISCORD_AUTH_CLIENT_SECRET || '';
   document.getElementById('envDashboardManagedGuildIds').value = values.DASHBOARD_MANAGED_GUILD_IDS || '';
   document.getElementById('envDashboardAuthSessionHours').value = values.DASHBOARD_AUTH_SESSION_HOURS || '12';
+
+  const callbackUrl = state.envConfig.dashboardAuth && state.envConfig.dashboardAuth.callbackUrl
+    ? state.envConfig.dashboardAuth.callbackUrl
+    : '';
+  const callbackInput = document.getElementById('envDashboardCallbackUrl');
+  const callbackMeta = document.getElementById('envDashboardCallbackMeta');
+  const callbackCopyBtn = document.getElementById('copyDashboardCallbackUrl');
+  callbackInput.value = callbackUrl;
+  callbackCopyBtn.disabled = !callbackUrl;
+  if (callbackUrl) {
+    callbackMeta.textContent = 'Ready. Add this exact URL to Discord Developer Portal -> OAuth2 -> Redirects.';
+  } else {
+    callbackMeta.textContent = 'Callback URL unavailable. Set DASHBOARD_PUBLIC_URL to generate it.';
+  }
+
   document.getElementById('envMeta').textContent = 'Env file: ' + (state.envConfig.envFilePath || 'unknown');
 }
 
@@ -1262,6 +1286,19 @@ document.getElementById('addTracked').addEventListener('click', addTracked);
 document.getElementById('addSource').addEventListener('click', addSourceDraft);
 document.getElementById('saveSources').addEventListener('click', saveSources);
 document.getElementById('saveEnv').addEventListener('click', saveEnvConfig);
+document.getElementById('copyDashboardCallbackUrl').addEventListener('click', async () => {
+  const value = String(document.getElementById('envDashboardCallbackUrl').value || '').trim();
+  if (!value) {
+    setStatus('Callback URL is not available yet.', false);
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(value);
+    setStatus('OAuth callback URL copied.', true);
+  } catch (error) {
+    setStatus('Could not copy callback URL: ' + (error.message || error), false);
+  }
+});
 document.getElementById('copyInviteUrl').addEventListener('click', async () => {
   const value = String(document.getElementById('homeOauthInviteUrl').value || '').trim();
   if (!value) {
