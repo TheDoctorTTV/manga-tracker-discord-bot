@@ -85,6 +85,7 @@ http://127.0.0.1:9898
 ```
 
 The dashboard currently runs without built-in auth while admin features are being completed. Keep it bound to localhost or behind your own network controls.
+It includes admin tabs for `Home`, `Users`, `Settings`, and `About`.
 
 ## Run as a systemd service (recommended)
 

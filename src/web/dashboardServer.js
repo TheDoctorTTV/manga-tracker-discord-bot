@@ -1,10 +1,10 @@
 const http = require('http');
-const path = require('path');
 const { URL } = require('url');
-const { spawn } = require('child_process');
 
 const {
   BOT_VERSION,
+  BOT_CREATOR,
+  BOT_GITHUB_REPO,
   DASHBOARD_HOST,
   DASHBOARD_PORT,
   MIN_AUTO_CHECK_HOURS,
@@ -26,16 +26,10 @@ function getRequestBody(req) {
     let data = '';
     req.on('data', (chunk) => {
       data += chunk;
-      if (data.length > 1024 * 1024) {
-        reject(new Error('Request body too large'));
-      }
+      if (data.length > 1024 * 1024) reject(new Error('Request body too large'));
     });
     req.on('end', () => {
-      if (!data) {
-        resolve({});
-        return;
-      }
-
+      if (!data) return resolve({});
       try {
         resolve(JSON.parse(data));
       } catch {
@@ -72,23 +66,39 @@ body {
   color: var(--text);
 }
 header {
-  padding: 18px 20px;
+  padding: 16px 20px;
   border-bottom: 1px solid #2b4257;
 }
-main {
-  display: grid;
-  grid-template-columns: 320px 1fr 1fr;
-  gap: 14px;
-  padding: 14px;
+h1, h2, h3 { margin: 0 0 8px; }
+small, .muted { color: var(--muted); }
+main { padding: 14px; }
+.tabs { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.tab-btn {
+  width: auto;
+  min-width: 100px;
+  border-radius: 10px;
+  border: 1px solid #3d607f;
+  background: #14334a;
+  color: var(--text);
+  padding: 8px 12px;
+  cursor: pointer;
 }
+.tab-btn.active { background: #1d5c85; border-color: #5ca4d6; }
 .panel {
   background: linear-gradient(180deg, var(--panel) 0%, var(--panel-alt) 100%);
   border: 1px solid #2c4760;
   border-radius: 12px;
   padding: 12px;
 }
-h1, h2, h3 { margin: 0 0 8px; }
-small, .muted { color: var(--muted); }
+.grid { display: grid; gap: 10px; }
+.grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.card {
+  background: #112738;
+  border: 1px solid #32546f;
+  border-radius: 10px;
+  padding: 10px;
+}
+.value { font-size: 24px; font-weight: 700; color: var(--accent); }
 input, select, button, textarea {
   width: 100%;
   border-radius: 8px;
@@ -104,83 +114,126 @@ button.warn { background: #6a3434; border-color: #8d4a4a; }
 button.warn:hover { background: #834242; }
 .row { display: flex; gap: 8px; }
 .row > * { flex: 1; }
-.list { max-height: 70vh; overflow: auto; border: 1px solid #36536e; border-radius: 8px; }
+.user-layout { display: grid; grid-template-columns: 320px 1fr; gap: 12px; }
+.list { max-height: 62vh; overflow: auto; border: 1px solid #36536e; border-radius: 8px; }
 .user-item { padding: 10px; border-bottom: 1px solid #2c4358; cursor: pointer; }
 .user-item:hover { background: #1f3b52; }
 .user-item.active { background: #295678; }
 .badge { background: #2a4f6f; border-radius: 999px; padding: 2px 8px; font-size: 12px; }
-.tracked-row { border: 1px solid #355069; border-radius: 8px; padding: 10px; margin-bottom: 8px; }
-code, pre { background: #0d1e2c; border: 1px solid #28425a; border-radius: 8px; }
-pre { padding: 8px; max-height: 230px; overflow: auto; white-space: pre-wrap; }
+.tracked-row, .source-row { border: 1px solid #355069; border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+.hidden { display: none; }
 .status.ok { color: var(--ok); }
 .status.err { color: var(--danger); }
-@media (max-width: 1260px) { main { grid-template-columns: 1fr; } }
+pre {
+  margin: 0;
+  background: #0d1e2c;
+  border: 1px solid #28425a;
+  border-radius: 8px;
+  padding: 10px;
+  white-space: pre-wrap;
+}
+@media (max-width: 1100px) {
+  .grid.two, .user-layout { grid-template-columns: 1fr; }
+}
 </style>
 </head>
 <body>
 <header>
   <h1>Manga Tracker Admin Dashboard</h1>
-  <small>Admin-only controls. Discord users continue using slash commands.</small>
+  <small>Admin-only management surface. End users still use Discord slash commands.</small>
 </header>
 <main>
-  <section class="panel">
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="home">Home</button>
+    <button class="tab-btn" data-tab="users">Users</button>
+    <button class="tab-btn" data-tab="settings">Settings</button>
+    <button class="tab-btn" data-tab="about">About</button>
+  </div>
+
+  <section id="tab-home" class="panel tab-panel">
+    <h2>Home</h2>
+    <div class="grid two" id="homeCards"></div>
+    <div id="homeMeta" class="muted"></div>
+  </section>
+
+  <section id="tab-users" class="panel tab-panel hidden">
     <h2>Users</h2>
-    <button id="refreshUsers">Refresh</button>
-    <div id="users" class="list"></div>
+    <div class="user-layout">
+      <div>
+        <input id="userSearch" placeholder="Search by user id" />
+        <button id="refreshUsers">Refresh</button>
+        <div id="users" class="list"></div>
+      </div>
+      <div>
+        <h3 id="selectedUserTitle">Select a user</h3>
+        <div id="userMeta" class="muted"></div>
+
+        <h3>User Settings</h3>
+        <label>Preferred Source</label>
+        <select id="preferredSource"></select>
+        <label>Auto-check Interval (hours)</label>
+        <input id="autoHours" type="number" min="${MIN_AUTO_CHECK_HOURS}" max="${MAX_AUTO_CHECK_HOURS}" />
+        <div class="row">
+          <button id="saveSettings">Save Settings</button>
+          <button id="deleteUser" class="warn">Delete User</button>
+        </div>
+
+        <h3>Tracked Manga</h3>
+        <div class="row">
+          <input id="addInput" placeholder="Manga URL, ID, or title" />
+          <select id="addSourceHint"></select>
+        </div>
+        <button id="addTracked">Add Manga</button>
+        <div id="trackedList"></div>
+      </div>
+    </div>
   </section>
 
-  <section class="panel">
-    <h2 id="selectedUserTitle">Select a user</h2>
-    <div id="userMeta" class="muted"></div>
+  <section id="tab-settings" class="panel tab-panel hidden">
+    <h2>Settings</h2>
+    <h3>Sources</h3>
+    <small>Add or remove sources used by the bot.</small>
 
-    <h3>User Settings</h3>
-    <label>Preferred Source</label>
-    <select id="preferredSource"></select>
-    <label>Auto-check Interval (hours)</label>
-    <input id="autoHours" type="number" min="${MIN_AUTO_CHECK_HOURS}" max="${MAX_AUTO_CHECK_HOURS}" />
-    <div class="row">
-      <button id="saveSettings">Save Settings</button>
-      <button id="deleteUser" class="warn">Delete User</button>
+    <div class="source-row">
+      <label>Default Source</label>
+      <select id="defaultSource"></select>
     </div>
 
-    <h3>Tracked Manga</h3>
-    <div class="row">
-      <input id="addInput" placeholder="Manga URL, ID, or title" />
-      <select id="addSourceHint"></select>
-    </div>
-    <button id="addTracked">Add Manga</button>
-    <div id="trackedList"></div>
-    <div id="statusLine" class="status"></div>
+    <div id="sourcesList"></div>
+    <button id="addSource">Add Source</button>
+    <button id="saveSources">Save Sources</button>
   </section>
 
-  <section class="panel">
-    <h2>Admin Controls</h2>
-
-    <h3>Summary</h3>
-    <div id="summary" class="muted">Loading...</div>
-
-    <h3>Sources Config</h3>
-    <small>Edit JSON and save. This updates <code>manga-sources.json</code> immediately.</small>
-    <textarea id="sourcesConfig" rows="12" spellcheck="false"></textarea>
-    <div class="row">
-      <button id="reloadSources">Reload File</button>
-      <button id="saveSources">Save Sources</button>
+  <section id="tab-about" class="panel tab-panel hidden">
+    <h2>About</h2>
+    <div class="grid">
+      <div class="card"><strong>Creator</strong><div id="aboutCreator"></div></div>
+      <div class="card"><strong>Version</strong><div id="aboutVersion"></div></div>
+      <div class="card"><strong>GitHub Repo</strong><div id="aboutRepo"></div></div>
+      <div class="card"><strong>Update System</strong><div id="aboutUpdater"></div></div>
     </div>
-
-    <h3>Maintenance</h3>
-    <input id="updateRef" placeholder="Optional ref (branch/tag), blank = current" />
-    <button id="runUpdate">Run scripts/update.sh</button>
-    <small id="updateMeta" class="muted">No update task started yet.</small>
-    <pre id="updateLog"></pre>
   </section>
+
+  <div id="statusLine" class="status"></div>
 </main>
+
 <script>
 const state = {
+  home: null,
   users: [],
   sources: null,
   selectedUserId: null,
   selectedUserData: null,
+  sourceDraft: null,
+  userSearch: '',
+  about: null,
 };
+
+function setStatus(message, ok = true) {
+  const el = document.getElementById('statusLine');
+  el.textContent = message;
+  el.className = ok ? 'status ok' : 'status err';
+}
 
 async function api(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
@@ -198,35 +251,70 @@ async function api(path, options = {}) {
   return response.json();
 }
 
-function setStatus(message, ok = true) {
-  const el = document.getElementById('statusLine');
-  el.textContent = message;
-  el.className = ok ? 'status ok' : 'status err';
+function switchTab(tabKey) {
+  document.querySelectorAll('.tab-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.tab === tabKey);
+  });
+
+  document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.add('hidden'));
+  document.getElementById('tab-' + tabKey).classList.remove('hidden');
 }
 
-function renderUsers() {
-  const container = document.getElementById('users');
+function renderHome() {
+  const container = document.getElementById('homeCards');
   container.innerHTML = '';
-
-  if (!state.users.length) {
-    container.innerHTML = '<div class="user-item">No users found.</div>';
+  if (!state.home) {
+    container.innerHTML = '<div class="card">No data</div>';
     return;
   }
 
-  for (const user of state.users) {
+  const cards = [
+    ['Bot Status', state.home.botStatus],
+    ['Users', String(state.home.users)],
+    ['Manga Lists', String(state.home.totalTracked)],
+    ['Sources', String(state.home.sources)],
+    ['Default Source', state.home.defaultSource],
+    ['PID', String(state.home.pid)],
+  ];
+
+  for (const card of cards) {
+    const el = document.createElement('div');
+    el.className = 'card';
+    el.innerHTML = '<div>' + card[0] + '</div><div class="value">' + card[1] + '</div>';
+    container.appendChild(el);
+  }
+
+  document.getElementById('homeMeta').textContent =
+    'Uptime: ' + state.home.uptimeHuman + ' • Memory RSS: ' + state.home.memoryRssMb + ' MB';
+}
+
+function renderUsers() {
+  const list = document.getElementById('users');
+  list.innerHTML = '';
+
+  const search = state.userSearch.trim().toLowerCase();
+  const users = search ? state.users.filter((user) => user.userId.toLowerCase().includes(search)) : state.users;
+
+  if (!users.length) {
+    list.innerHTML = '<div class="user-item">No users found.</div>';
+    return;
+  }
+
+  for (const user of users) {
     const row = document.createElement('div');
     row.className = 'user-item' + (state.selectedUserId === user.userId ? ' active' : '');
     row.innerHTML =
       '<div><strong>' + user.userId + '</strong> <span class="badge">' + user.trackedCount + ' tracked</span></div>' +
       '<small>' + user.preferredSource + ' • every ' + user.autoCheckIntervalHours + 'h</small>';
     row.addEventListener('click', () => selectUser(user.userId));
-    container.appendChild(row);
+    list.appendChild(row);
   }
 }
 
 function populateSourceOptions() {
   const preferred = document.getElementById('preferredSource');
   const addHint = document.getElementById('addSourceHint');
+
   preferred.innerHTML = '';
   addHint.innerHTML = '<option value="">Use preferred source</option>';
 
@@ -239,8 +327,6 @@ function populateSourceOptions() {
     const option2 = option.cloneNode(true);
     addHint.appendChild(option2);
   }
-
-  document.getElementById('sourcesConfig').value = JSON.stringify(state.sources, null, 2);
 }
 
 function renderTracked() {
@@ -269,7 +355,7 @@ function renderTracked() {
         });
         setStatus('Removed tracked manga.', true);
         await selectUser(state.selectedUserId);
-        await refreshUsers();
+        await refreshAll();
       } catch (error) {
         setStatus(error.message, false);
       }
@@ -280,11 +366,95 @@ function renderTracked() {
   }
 }
 
-async function refreshSummary() {
-  const payload = await api('/api/admin/summary');
-  const s = payload.summary;
-  document.getElementById('summary').textContent =
-    'Version ' + payload.version + ' • Users: ' + s.users + ' • Tracked: ' + s.totalTracked + ' • Sources: ' + s.sources + ' • Default: ' + s.defaultSource;
+function renderSourcesSettings() {
+  const defaultSelect = document.getElementById('defaultSource');
+  const list = document.getElementById('sourcesList');
+
+  defaultSelect.innerHTML = '';
+  list.innerHTML = '';
+
+  if (!state.sourceDraft || !Array.isArray(state.sourceDraft.sources)) return;
+
+  for (const source of state.sourceDraft.sources) {
+    const option = document.createElement('option');
+    option.value = source.key;
+    option.textContent = source.displayName + ' (' + source.key + ')';
+    defaultSelect.appendChild(option);
+  }
+
+  if (state.sourceDraft.sources.length > 0) {
+    defaultSelect.value = state.sourceDraft.defaultSource || state.sourceDraft.sources[0].key;
+  }
+
+  state.sourceDraft.sources.forEach((source, index) => {
+    const row = document.createElement('div');
+    row.className = 'source-row';
+    row.innerHTML =
+      '<label>Key</label><input data-field="key" data-index="' + index + '" value="' + (source.key || '') + '" />' +
+      '<label>Display Name</label><input data-field="displayName" data-index="' + index + '" value="' + (source.displayName || '') + '" />' +
+      '<label>Title URL</label><input data-field="titleUrl" data-index="' + index + '" value="' + (source.titleUrl || '') + '" />' +
+      '<label>Hosts (comma separated)</label><input data-field="hosts" data-index="' + index + '" value="' + (Array.isArray(source.hosts) ? source.hosts.join(', ') : '') + '" />';
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'warn';
+    removeBtn.textContent = 'Remove Source';
+    removeBtn.addEventListener('click', () => {
+      state.sourceDraft.sources.splice(index, 1);
+      if (state.sourceDraft.sources.length === 0) {
+        state.sourceDraft.defaultSource = '';
+      } else if (!state.sourceDraft.sources.some((item) => item.key === state.sourceDraft.defaultSource)) {
+        state.sourceDraft.defaultSource = state.sourceDraft.sources[0].key;
+      }
+      renderSourcesSettings();
+    });
+
+    row.appendChild(removeBtn);
+    list.appendChild(row);
+  });
+
+  list.querySelectorAll('input[data-field]').forEach((input) => {
+    input.addEventListener('input', (event) => {
+      const idx = Number(event.target.dataset.index);
+      const field = event.target.dataset.field;
+      const value = event.target.value;
+
+      if (!state.sourceDraft.sources[idx]) return;
+
+      if (field === 'hosts') {
+        state.sourceDraft.sources[idx].hosts = value
+          .split(',')
+          .map((v) => v.trim())
+          .filter(Boolean);
+      } else {
+        state.sourceDraft.sources[idx][field] = value;
+      }
+
+      if (field === 'key' && state.sourceDraft.defaultSource === '') {
+        state.sourceDraft.defaultSource = value.trim().toLowerCase();
+      }
+    });
+  });
+
+  defaultSelect.onchange = () => {
+    state.sourceDraft.defaultSource = defaultSelect.value;
+  };
+}
+
+function renderAbout() {
+  if (!state.about) return;
+  document.getElementById('aboutCreator').textContent = state.about.creator;
+  document.getElementById('aboutVersion').textContent = state.about.version;
+
+  const repo = document.getElementById('aboutRepo');
+  repo.innerHTML = '<a href="' + state.about.repo + '" target="_blank" rel="noreferrer">' + state.about.repo + '</a>';
+
+  document.getElementById('aboutUpdater').textContent = state.about.updateSystem;
+}
+
+async function refreshHome() {
+  const payload = await api('/api/admin/home');
+  state.home = payload;
+  renderHome();
 }
 
 async function refreshUsers() {
@@ -295,7 +465,14 @@ async function refreshUsers() {
 
 async function refreshSources() {
   state.sources = await api('/api/admin/sources');
+  state.sourceDraft = JSON.parse(JSON.stringify(state.sources));
   populateSourceOptions();
+  renderSourcesSettings();
+}
+
+async function refreshAbout() {
+  state.about = await api('/api/admin/about');
+  renderAbout();
 }
 
 async function selectUser(userId) {
@@ -306,6 +483,7 @@ async function selectUser(userId) {
   document.getElementById('selectedUserTitle').textContent = 'User ' + userId;
   document.getElementById('userMeta').textContent =
     'Tracked: ' + payload.user.tracked.length + ' • Last auto-check: ' + (payload.user.lastAutoCheckAt || 'never');
+
   document.getElementById('preferredSource').value = payload.user.preferredSource;
   document.getElementById('autoHours').value = payload.user.autoCheckIntervalHours;
 
@@ -314,11 +492,7 @@ async function selectUser(userId) {
 }
 
 async function saveSettings() {
-  if (!state.selectedUserId) {
-    setStatus('Select a user first.', false);
-    return;
-  }
-
+  if (!state.selectedUserId) return setStatus('Select a user first.', false);
   try {
     await api('/api/users/' + state.selectedUserId + '/settings', {
       method: 'PUT',
@@ -327,9 +501,9 @@ async function saveSettings() {
         autoCheckIntervalHours: Number(document.getElementById('autoHours').value),
       }),
     });
-
     setStatus('Settings updated.', true);
     await selectUser(state.selectedUserId);
+    await refreshHome();
     await refreshUsers();
   } catch (error) {
     setStatus(error.message, false);
@@ -337,13 +511,9 @@ async function saveSettings() {
 }
 
 async function deleteUser() {
-  if (!state.selectedUserId) {
-    setStatus('Select a user first.', false);
-    return;
-  }
+  if (!state.selectedUserId) return setStatus('Select a user first.', false);
 
-  const confirmed = window.confirm('Delete user ' + state.selectedUserId + ' and all tracked data?');
-  if (!confirmed) return;
+  if (!window.confirm('Delete user ' + state.selectedUserId + ' and all tracked data?')) return;
 
   try {
     await api('/api/users/' + state.selectedUserId, { method: 'DELETE' });
@@ -353,24 +523,17 @@ async function deleteUser() {
     document.getElementById('selectedUserTitle').textContent = 'Select a user';
     document.getElementById('userMeta').textContent = '';
     document.getElementById('trackedList').innerHTML = '';
-    await refreshUsers();
-    await refreshSummary();
+    await refreshAll();
   } catch (error) {
     setStatus(error.message, false);
   }
 }
 
 async function addTracked() {
-  if (!state.selectedUserId) {
-    setStatus('Select a user first.', false);
-    return;
-  }
+  if (!state.selectedUserId) return setStatus('Select a user first.', false);
 
   const input = document.getElementById('addInput').value.trim();
-  if (!input) {
-    setStatus('Provide manga input.', false);
-    return;
-  }
+  if (!input) return setStatus('Provide manga input.', false);
 
   try {
     const payload = await api('/api/users/' + state.selectedUserId + '/tracked', {
@@ -380,105 +543,82 @@ async function addTracked() {
         sourceHint: document.getElementById('addSourceHint').value || null,
       }),
     });
-
     setStatus(payload.message || 'Tracked manga updated.', true);
     document.getElementById('addInput').value = '';
     await selectUser(state.selectedUserId);
-    await refreshUsers();
-    await refreshSummary();
+    await refreshAll();
   } catch (error) {
     setStatus(error.message, false);
   }
+}
+
+function addSourceDraft() {
+  if (!state.sourceDraft || !Array.isArray(state.sourceDraft.sources)) return;
+  state.sourceDraft.sources.push({ key: '', displayName: '', hosts: [], titleUrl: '' });
+  renderSourcesSettings();
 }
 
 async function saveSources() {
   try {
-    const payload = JSON.parse(document.getElementById('sourcesConfig').value);
-    const updated = await api('/api/admin/sources', {
+    const payload = {
+      defaultSource: state.sourceDraft.defaultSource,
+      sources: state.sourceDraft.sources.map((source) => ({
+        key: (source.key || '').trim().toLowerCase(),
+        displayName: (source.displayName || '').trim(),
+        hosts: Array.isArray(source.hosts)
+          ? source.hosts.map((host) => String(host || '').trim().toLowerCase()).filter(Boolean)
+          : [],
+        titleUrl: (source.titleUrl || '').trim(),
+      })),
+    };
+
+    state.sources = await api('/api/admin/sources', {
       method: 'PUT',
       body: JSON.stringify(payload),
     });
-    state.sources = updated;
+
+    state.sourceDraft = JSON.parse(JSON.stringify(state.sources));
     populateSourceOptions();
-    setStatus('Sources config saved and reloaded.', true);
-    await refreshSummary();
+    renderSourcesSettings();
+    setStatus('Sources updated.', true);
+    await refreshHome();
   } catch (error) {
     setStatus(error.message, false);
   }
 }
 
-async function reloadSources() {
-  try {
-    state.sources = await api('/api/admin/sources/reload', { method: 'POST' });
-    populateSourceOptions();
-    setStatus('Sources reloaded from file.', true);
-    await refreshSummary();
-  } catch (error) {
-    setStatus(error.message, false);
-  }
+async function refreshAll() {
+  await Promise.all([refreshHome(), refreshUsers(), refreshSources(), refreshAbout()]);
 }
 
-function renderUpdateTask(task) {
-  const meta = document.getElementById('updateMeta');
-  const log = document.getElementById('updateLog');
-
-  if (!task) {
-    meta.textContent = 'No update task started yet.';
-    log.textContent = '';
-    return;
-  }
-
-  const status = task.running ? 'running' : (task.exitCode === 0 ? 'success' : 'failed');
-  meta.textContent =
-    'Task ' + task.id + ' • ' + status + ' • started ' + task.startedAt + (task.finishedAt ? ' • finished ' + task.finishedAt : '');
-  log.textContent = (task.output || []).join('');
-}
-
-async function refreshUpdateTask() {
-  try {
-    const payload = await api('/api/admin/update');
-    renderUpdateTask(payload.task);
-  } catch (error) {
-    setStatus(error.message, false);
-  }
-}
-
-async function runUpdate() {
-  const ref = document.getElementById('updateRef').value.trim();
-  try {
-    const payload = await api('/api/admin/update', {
-      method: 'POST',
-      body: JSON.stringify({ ref: ref || null }),
-    });
-    renderUpdateTask(payload.task);
-    setStatus('Update script started.', true);
-  } catch (error) {
-    setStatus(error.message, false);
-  }
-}
+document.querySelectorAll('.tab-btn').forEach((btn) => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+});
 
 document.getElementById('refreshUsers').addEventListener('click', async () => {
   try {
     await refreshUsers();
-    await refreshSummary();
-    setStatus('User list refreshed.', true);
+    await refreshHome();
+    setStatus('Users refreshed.', true);
   } catch (error) {
     setStatus(error.message, false);
   }
 });
 
+document.getElementById('userSearch').addEventListener('input', (event) => {
+  state.userSearch = event.target.value || '';
+  renderUsers();
+});
+
 document.getElementById('saveSettings').addEventListener('click', saveSettings);
 document.getElementById('deleteUser').addEventListener('click', deleteUser);
 document.getElementById('addTracked').addEventListener('click', addTracked);
+document.getElementById('addSource').addEventListener('click', addSourceDraft);
 document.getElementById('saveSources').addEventListener('click', saveSources);
-document.getElementById('reloadSources').addEventListener('click', reloadSources);
-document.getElementById('runUpdate').addEventListener('click', runUpdate);
-
-setInterval(refreshUpdateTask, 3000);
 
 (async () => {
   try {
-    await Promise.all([refreshSources(), refreshUsers(), refreshSummary(), refreshUpdateTask()]);
+    await refreshAll();
     setStatus('Admin dashboard ready.', true);
   } catch (error) {
     setStatus(error.message, false);
@@ -489,67 +629,19 @@ setInterval(refreshUpdateTask, 3000);
 </html>`;
 }
 
+function formatUptime(seconds) {
+  const total = Math.max(0, Math.floor(seconds));
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const parts = [];
+  if (days) parts.push(`${days}d`);
+  if (hours || days) parts.push(`${hours}h`);
+  parts.push(`${minutes}m`);
+  return parts.join(' ');
+}
+
 function startDashboardServer({ service }) {
-  let activeUpdateTask = null;
-  let updateCounter = 0;
-
-  const rootDir = process.cwd();
-  const updateScriptPath = path.join(rootDir, 'scripts', 'update.sh');
-
-  function appendTaskOutput(task, chunk) {
-    const text = String(chunk || '');
-    if (!text) return;
-    task.output.push(text);
-    if (task.output.length > 400) {
-      task.output = task.output.slice(task.output.length - 400);
-    }
-  }
-
-  function runUpdateTask(ref) {
-    if (activeUpdateTask && activeUpdateTask.running) {
-      throw new Error('An update task is already running');
-    }
-
-    updateCounter += 1;
-    const task = {
-      id: updateCounter,
-      ref: ref || null,
-      running: true,
-      exitCode: null,
-      startedAt: new Date().toISOString(),
-      finishedAt: null,
-      output: [],
-    };
-
-    const args = [];
-    if (ref) args.push(ref);
-
-    const child = spawn(updateScriptPath, args, {
-      cwd: rootDir,
-      env: process.env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    child.stdout.on('data', (chunk) => appendTaskOutput(task, chunk));
-    child.stderr.on('data', (chunk) => appendTaskOutput(task, chunk));
-
-    child.on('error', (error) => {
-      appendTaskOutput(task, `\n[error] ${error.message}\n`);
-      task.running = false;
-      task.exitCode = -1;
-      task.finishedAt = new Date().toISOString();
-    });
-
-    child.on('close', (code) => {
-      task.running = false;
-      task.exitCode = Number.isInteger(code) ? code : -1;
-      task.finishedAt = new Date().toISOString();
-    });
-
-    activeUpdateTask = task;
-    return task;
-  }
-
   const server = http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url, `http://${req.headers.host || `${DASHBOARD_HOST}:${DASHBOARD_PORT}`}`);
     const pathName = requestUrl.pathname;
@@ -564,126 +656,131 @@ function startDashboardServer({ service }) {
       return;
     }
 
-    if (pathName.startsWith('/api/')) {
-      try {
-        if (req.method === 'GET' && pathName === '/api/admin/summary') {
-          sendJson(res, 200, { version: BOT_VERSION, summary: service.getAdminSummary() });
-          return;
-        }
-
-        if (req.method === 'GET' && pathName === '/api/admin/sources') {
-          sendJson(res, 200, service.getSources());
-          return;
-        }
-
-        if (req.method === 'PUT' && pathName === '/api/admin/sources') {
-          const body = await getRequestBody(req);
-          sendJson(res, 200, service.saveSourcesConfig(body));
-          return;
-        }
-
-        if (req.method === 'POST' && pathName === '/api/admin/sources/reload') {
-          sendJson(res, 200, service.reloadSourcesConfig());
-          return;
-        }
-
-        if (req.method === 'GET' && pathName === '/api/admin/update') {
-          sendJson(res, 200, { task: activeUpdateTask });
-          return;
-        }
-
-        if (req.method === 'POST' && pathName === '/api/admin/update') {
-          const body = await getRequestBody(req);
-          const ref = typeof body.ref === 'string' ? body.ref.trim() : '';
-          sendJson(res, 202, { task: runUpdateTask(ref || null) });
-          return;
-        }
-
-        if (req.method === 'GET' && pathName === '/api/users') {
-          sendJson(res, 200, { users: service.listUsers() });
-          return;
-        }
-
-        const userMatch = pathName.match(/^\/api\/users\/(\d+)$/);
-        if (req.method === 'GET' && userMatch) {
-          const userId = userMatch[1];
-          sendJson(res, 200, { user: service.getUserData(userId) });
-          return;
-        }
-
-        if (req.method === 'DELETE' && userMatch) {
-          const userId = userMatch[1];
-          const deleted = service.deleteUser(userId);
-          if (!deleted) {
-            sendJson(res, 404, { error: 'User not found' });
-            return;
-          }
-          sendJson(res, 200, { deleted: true });
-          return;
-        }
-
-        const settingsMatch = pathName.match(/^\/api\/users\/(\d+)\/settings$/);
-        if (req.method === 'PUT' && settingsMatch) {
-          const userId = settingsMatch[1];
-          const body = await getRequestBody(req);
-          const updated = service.setUserSettings(userId, {
-            preferredSource: body.preferredSource,
-            autoCheckIntervalHours: body.autoCheckIntervalHours,
-          });
-          sendJson(res, 200, { user: updated });
-          return;
-        }
-
-        const trackedMatch = pathName.match(/^\/api\/users\/(\d+)\/tracked$/);
-        if (req.method === 'POST' && trackedMatch) {
-          const userId = trackedMatch[1];
-          const body = await getRequestBody(req);
-          const result = await service.addTrackedByInput(userId, body.input, body.sourceHint);
-
-          if (result.status === 'already_tracked') {
-            sendJson(res, 200, { status: result.status, message: 'This manga is already tracked.' });
-            return;
-          }
-          if (result.status === 'not_found') {
-            sendJson(res, 404, { error: 'Could not resolve manga from input.' });
-            return;
-          }
-
-          sendJson(res, 200, {
-            status: result.status,
-            message: `Now tracking ${result.title} (${result.source}).`,
-          });
-          return;
-        }
-
-        if (req.method === 'DELETE' && trackedMatch) {
-          const userId = trackedMatch[1];
-          const source = (requestUrl.searchParams.get('source') || '').trim().toLowerCase();
-          const mangaId = (requestUrl.searchParams.get('mangaId') || '').trim();
-
-          if (!source || !mangaId) {
-            sendJson(res, 400, { error: 'source and mangaId query params are required.' });
-            return;
-          }
-
-          const removed = service.removeTrackedByTarget(userId, { source, mangaId });
-          if (!removed) {
-            sendJson(res, 404, { error: 'Tracked manga entry not found.' });
-            return;
-          }
-
-          sendJson(res, 200, { removed });
-          return;
-        }
-
-        sendJson(res, 404, { error: 'Route not found' });
-      } catch (error) {
-        sendJson(res, 400, { error: error.message || 'Request failed' });
-      }
+    if (!pathName.startsWith('/api/')) {
+      sendJson(res, 404, { error: 'Not Found' });
       return;
     }
 
-    sendJson(res, 404, { error: 'Not Found' });
+    try {
+      if (req.method === 'GET' && pathName === '/api/admin/home') {
+        const summary = service.getAdminSummary();
+        const memoryRssMb = Math.round((process.memoryUsage().rss / 1024 / 1024) * 10) / 10;
+        sendJson(res, 200, {
+          botStatus: 'running',
+          users: summary.users,
+          totalTracked: summary.totalTracked,
+          sources: summary.sources,
+          defaultSource: summary.defaultSource,
+          pid: process.pid,
+          uptimeHuman: formatUptime(process.uptime()),
+          memoryRssMb,
+        });
+        return;
+      }
+
+      if (req.method === 'GET' && pathName === '/api/admin/about') {
+        sendJson(res, 200, {
+          creator: BOT_CREATOR,
+          version: BOT_VERSION,
+          repo: BOT_GITHUB_REPO,
+          updateSystem: 'Built into the binary (dashboard updater coming in next phase).',
+        });
+        return;
+      }
+
+      if (req.method === 'GET' && pathName === '/api/admin/sources') {
+        sendJson(res, 200, service.getSources());
+        return;
+      }
+
+      if (req.method === 'PUT' && pathName === '/api/admin/sources') {
+        const body = await getRequestBody(req);
+        sendJson(res, 200, service.saveSourcesConfig(body));
+        return;
+      }
+
+      if (req.method === 'GET' && pathName === '/api/users') {
+        sendJson(res, 200, { users: service.listUsers() });
+        return;
+      }
+
+      const userMatch = pathName.match(/^\/api\/users\/(\d+)$/);
+      if (req.method === 'GET' && userMatch) {
+        const userId = userMatch[1];
+        sendJson(res, 200, { user: service.getUserData(userId) });
+        return;
+      }
+
+      if (req.method === 'DELETE' && userMatch) {
+        const userId = userMatch[1];
+        const deleted = service.deleteUser(userId);
+        if (!deleted) {
+          sendJson(res, 404, { error: 'User not found' });
+          return;
+        }
+        sendJson(res, 200, { deleted: true });
+        return;
+      }
+
+      const settingsMatch = pathName.match(/^\/api\/users\/(\d+)\/settings$/);
+      if (req.method === 'PUT' && settingsMatch) {
+        const userId = settingsMatch[1];
+        const body = await getRequestBody(req);
+        const updated = service.setUserSettings(userId, {
+          preferredSource: body.preferredSource,
+          autoCheckIntervalHours: body.autoCheckIntervalHours,
+        });
+        sendJson(res, 200, { user: updated });
+        return;
+      }
+
+      const trackedMatch = pathName.match(/^\/api\/users\/(\d+)\/tracked$/);
+      if (req.method === 'POST' && trackedMatch) {
+        const userId = trackedMatch[1];
+        const body = await getRequestBody(req);
+        const result = await service.addTrackedByInput(userId, body.input, body.sourceHint);
+
+        if (result.status === 'already_tracked') {
+          sendJson(res, 200, { status: result.status, message: 'This manga is already tracked.' });
+          return;
+        }
+
+        if (result.status === 'not_found') {
+          sendJson(res, 404, { error: 'Could not resolve manga from input.' });
+          return;
+        }
+
+        sendJson(res, 200, {
+          status: result.status,
+          message: `Now tracking ${result.title} (${result.source}).`,
+        });
+        return;
+      }
+
+      if (req.method === 'DELETE' && trackedMatch) {
+        const userId = trackedMatch[1];
+        const source = (requestUrl.searchParams.get('source') || '').trim().toLowerCase();
+        const mangaId = (requestUrl.searchParams.get('mangaId') || '').trim();
+
+        if (!source || !mangaId) {
+          sendJson(res, 400, { error: 'source and mangaId query params are required.' });
+          return;
+        }
+
+        const removed = service.removeTrackedByTarget(userId, { source, mangaId });
+        if (!removed) {
+          sendJson(res, 404, { error: 'Tracked manga entry not found.' });
+          return;
+        }
+
+        sendJson(res, 200, { removed });
+        return;
+      }
+
+      sendJson(res, 404, { error: 'Route not found' });
+    } catch (error) {
+      sendJson(res, 400, { error: error.message || 'Request failed' });
+    }
   });
 
   server.listen(DASHBOARD_PORT, DASHBOARD_HOST, () => {
