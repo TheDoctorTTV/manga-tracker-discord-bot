@@ -188,11 +188,30 @@
       <button id="checkUpdate">Check For Updates</button>
       <button id="applyUpdate" class="success">Apply Latest Update</button>
     </div>
+    <div id="updateProgressWrap" class="progress-wrap hidden" aria-live="polite">
+      <div class="progress-label" id="updateProgressLabel">Preparing update...</div>
+      <div class="progress-track">
+        <div id="updateProgressBar" class="progress-bar" style="width:0%"></div>
+      </div>
+    </div>
     <pre id="updaterOutput" class="updater-output">No updater action yet.</pre>
     </section>
 
     <div id="statusLine" class="status"></div>
   </main>
+</div>
+
+<div id="updateConfirmModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="updateConfirmTitle">
+  <div class="modal-panel">
+    <h3 id="updateConfirmTitle">Apply Bot Update?</h3>
+    <p id="updateConfirmBody" class="muted">
+      This downloads the selected binary release, replaces the current bot binary, and restarts the service.
+    </p>
+    <div class="row action-row">
+      <button id="cancelUpdateConfirm" class="warn" type="button">Cancel</button>
+      <button id="confirmUpdateApply" class="success" type="button">Apply Update</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -210,6 +229,8 @@ const state = {
   releaseMode: 'release',
   envConfig: null,
   botRuntime: null,
+  updaterAutoChecked: false,
+  updateProgressTimer: null,
 };
 
 function setStatus(message, ok = true) {
@@ -592,6 +613,7 @@ function renderUpdater() {
     lines.push('  Current version: ' + check.currentVersion);
     lines.push('  Latest version:  ' + check.latestVersion);
     lines.push('  Update available: ' + (check.updateAvailable ? 'yes' : 'no'));
+    if (check.warning) lines.push('  Note: ' + check.warning);
     if (check.release && check.release.htmlUrl) lines.push('  Release URL: ' + check.release.htmlUrl);
   }
 
@@ -663,6 +685,22 @@ async function refreshUpdater() {
   state.updater = await api('/api/admin/updater/status');
   if (state.updater && (state.updater.releaseMode === 'prerelease' || state.updater.releaseMode === 'release')) {
     state.releaseMode = state.updater.releaseMode;
+  }
+  if (
+    state.updater &&
+    !state.updaterAutoChecked &&
+    !state.updater.checking &&
+    !state.updater.applying &&
+    Array.isArray(state.updater.availableReleases) &&
+    state.updater.availableReleases.length === 0
+  ) {
+    state.updaterAutoChecked = true;
+    try {
+      state.updater = await api('/api/admin/updater/check', {
+        method: 'POST',
+        body: JSON.stringify({ releaseMode: state.releaseMode }),
+      });
+    } catch {}
   }
   renderUpdater();
 }
@@ -860,12 +898,55 @@ async function checkForUpdates() {
   }
 }
 
+function openUpdateConfirmModal() {
+  const modal = document.getElementById('updateConfirmModal');
+  const body = document.getElementById('updateConfirmBody');
+  const selectedTag = (document.getElementById('releaseVersion').value || '').trim();
+  const channel = document.getElementById('releaseMode').value === 'prerelease' ? 'prerelease' : 'release';
+  body.textContent =
+    'This downloads the selected binary, replaces the current executable, and restarts the service. ' +
+    'Channel: ' +
+    channel +
+    (selectedTag ? ' • Version: ' + selectedTag : ' • Version: latest in channel');
+  modal.classList.remove('hidden');
+}
+
+function closeUpdateConfirmModal() {
+  document.getElementById('updateConfirmModal').classList.add('hidden');
+}
+
+function setUpdateProgress(percent, label) {
+  const wrap = document.getElementById('updateProgressWrap');
+  const bar = document.getElementById('updateProgressBar');
+  const text = document.getElementById('updateProgressLabel');
+  const safe = Math.max(0, Math.min(100, Math.floor(percent)));
+  wrap.classList.remove('hidden');
+  bar.style.width = safe + '%';
+  text.textContent = label || 'Updating...';
+}
+
+function clearUpdateProgress() {
+  const wrap = document.getElementById('updateProgressWrap');
+  const bar = document.getElementById('updateProgressBar');
+  if (state.updateProgressTimer) {
+    clearInterval(state.updateProgressTimer);
+    state.updateProgressTimer = null;
+  }
+  bar.style.width = '0%';
+  wrap.classList.add('hidden');
+}
+
 async function applyUpdate() {
   const releaseMode = document.getElementById('releaseMode').value;
   const selectedTag = document.getElementById('releaseVersion').value.trim();
   state.releaseMode = releaseMode === 'prerelease' ? 'prerelease' : 'release';
-  if (!window.confirm('Apply latest binary update now? The process will restart.')) return;
-
+  closeUpdateConfirmModal();
+  let progress = 10;
+  setUpdateProgress(progress, 'Starting update request...');
+  state.updateProgressTimer = setInterval(() => {
+    progress = Math.min(90, progress + 6);
+    setUpdateProgress(progress, 'Downloading and preparing binary update...');
+  }, 600);
   try {
     state.updater = await api('/api/admin/updater/apply', {
       method: 'POST',
@@ -874,9 +955,18 @@ async function applyUpdate() {
         tagName: selectedTag || null,
       }),
     });
+    if (state.updateProgressTimer) {
+      clearInterval(state.updateProgressTimer);
+      state.updateProgressTimer = null;
+    }
+    setUpdateProgress(100, 'Update requested. Waiting for service restart...');
     renderUpdater();
-    setStatus('Update applied. Service restart requested.', true);
+    setStatus(state.updater.lastApply && state.updater.lastApply.applied ? 'Update applied. Service restart requested.' : (state.updater.lastApply && state.updater.lastApply.reason) || 'No update applied.', true);
+    setTimeout(() => {
+      clearUpdateProgress();
+    }, 2500);
   } catch (error) {
+    clearUpdateProgress();
     setStatus(error.message, false);
   }
 }
@@ -946,10 +1036,13 @@ document.getElementById('startBot').addEventListener('click', () => runBotAction
 document.getElementById('stopBot').addEventListener('click', () => runBotAction('stop'));
 document.getElementById('restartBot').addEventListener('click', () => runBotAction('restart'));
 document.getElementById('checkUpdate').addEventListener('click', checkForUpdates);
-document.getElementById('applyUpdate').addEventListener('click', applyUpdate);
+document.getElementById('applyUpdate').addEventListener('click', openUpdateConfirmModal);
+document.getElementById('cancelUpdateConfirm').addEventListener('click', closeUpdateConfirmModal);
+document.getElementById('confirmUpdateApply').addEventListener('click', applyUpdate);
 document.getElementById('releaseMode').addEventListener('change', () => {
   state.releaseMode = document.getElementById('releaseMode').value === 'prerelease' ? 'prerelease' : 'release';
   document.getElementById('releaseVersion').value = '';
+  state.updaterAutoChecked = false;
   renderUpdater();
 });
 

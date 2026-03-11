@@ -270,10 +270,17 @@ function startDashboardServer({ service, updater, botController }) {
         try {
           updaterState.lastApply = await updater.applyUpdate({ assetName, releaseMode, tagName });
           updaterState.lastCheck = {
-            currentVersion: updaterState.lastApply.fromVersion,
-            latestVersion: updaterState.lastApply.toVersion,
-            updateAvailable: true,
-            release: updaterState.lastApply.release,
+            currentVersion:
+              updaterState.lastApply.currentVersion ||
+              updaterState.lastApply.fromVersion ||
+              (updaterState.lastCheck ? updaterState.lastCheck.currentVersion : null),
+            latestVersion:
+              updaterState.lastApply.latestVersion ||
+              updaterState.lastApply.toVersion ||
+              (updaterState.lastCheck ? updaterState.lastCheck.latestVersion : null),
+            updateAvailable: Boolean(updaterState.lastApply.updateAvailable),
+            release: updaterState.lastApply.release || null,
+            warning: updaterState.lastApply.warning || updaterState.lastApply.reason || null,
           };
           updaterState.availableReleases = Array.isArray(updaterState.lastApply.releases)
             ? updaterState.lastApply.releases

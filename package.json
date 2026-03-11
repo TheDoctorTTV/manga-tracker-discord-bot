@@ -9,8 +9,11 @@
   "scripts": {
     "start": "node src/app.js",
     "test": "node --test",
+    "version:show": "node -e \"console.log(require('./version.json').version)\"",
+    "version:set": "node scripts/set-version.js",
     "build:binary": "./scripts/build-binary.sh",
-    "build:release": "./scripts/build-release-package.sh"
+    "build:release": "./scripts/build-release-package.sh",
+    "build:prerelease": "./scripts/build-prerelease-package.sh"
   },
   "dependencies": {
     "axios": "^1.8.2",

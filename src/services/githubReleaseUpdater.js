@@ -266,19 +266,32 @@ class GitHubReleaseUpdater {
 
   async checkForUpdate({ releaseMode = 'release', tagName = '' } = {}) {
     const normalizedMode = releaseMode === 'prerelease' ? 'prerelease' : 'release';
-    const release = tagName ? await this.fetchReleaseByTag(tagName) : (await this.fetchReleases({ releaseMode: normalizedMode, limit: 1 }))[0];
-    if (!release) {
-      throw new Error('No matching release found');
-    }
-
     const releases = await this.fetchReleases({ releaseMode: normalizedMode, limit: 30 });
-    const latestVersion = normalizeVersion(release.tagName);
     const currentVersion = normalizeVersion(this.currentVersion);
+    const release = tagName ? await this.fetchReleaseByTag(tagName) : releases[0] || null;
+    const latestVersion = release ? normalizeVersion(release.tagName) : currentVersion;
+
+    let warning = '';
+    if (!release) {
+      if (tagName) {
+        throw new Error(`No matching release found for tag "${tagName}" in channel "${normalizedMode}"`);
+      }
+      if (normalizedMode === 'release') {
+        const prereleases = await this.fetchReleases({ releaseMode: 'prerelease', limit: 1 });
+        if (prereleases.length > 0) {
+          warning = 'No stable releases found. Switch Release Channel to Prerelease.';
+        } else {
+          warning = 'No releases found.';
+        }
+      } else {
+        warning = 'No prereleases found.';
+      }
+    }
 
     return {
       currentVersion,
       latestVersion,
-      updateAvailable: compareVersions(latestVersion, currentVersion) > 0,
+      updateAvailable: release ? compareVersions(latestVersion, currentVersion) > 0 : false,
       release,
       releases: releases.map((item) => ({
         tagName: item.tagName,
@@ -286,6 +299,7 @@ class GitHubReleaseUpdater {
         prerelease: item.prerelease,
         publishedAt: item.publishedAt,
       })),
+      warning,
       releaseMode: normalizedMode,
       updaterState: this.getState(),
     };
@@ -304,6 +318,15 @@ class GitHubReleaseUpdater {
     fs.accessSync(this.binaryPath, fs.constants.W_OK);
 
     const check = await this.checkForUpdate({ releaseMode, tagName });
+    if (!check.release) {
+      return {
+        applied: false,
+        updateAvailable: false,
+        reason: check.warning || 'No matching release found',
+        ...check,
+      };
+    }
+
     if (!check.updateAvailable) {
       return {
         applied: false,

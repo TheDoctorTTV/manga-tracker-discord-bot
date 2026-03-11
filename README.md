@@ -240,6 +240,29 @@ In the dashboard About tab updater:
 - Choose `Release` or `Release + Prerelease`.
 - Pick a specific version from the version dropdown (or keep latest).
 
+## Versioning releases
+
+This repo now uses `version.json` as the single source of truth for app version and release tags.
+
+- Show current version:
+  ```bash
+  npm run version:show
+  ```
+- Set a new version across `version.json`, `package.json`, and `package-lock.json`:
+  ```bash
+  npm run version:set -- 1.0.1
+  ```
+- Build/publish stable release assets using that version tag (`v1.0.1` in this example):
+  ```bash
+  npm run build:release
+  ```
+- Build/publish prerelease assets:
+  ```bash
+  npm run build:prerelease
+  ```
+
+Both scripts read `version.json` for `RELEASE_TAG` unless you override with `RELEASE_TAG=...`.
+
 ## Troubleshooting
 
 If setup fails, check:
