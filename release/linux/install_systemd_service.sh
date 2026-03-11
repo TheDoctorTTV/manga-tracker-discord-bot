@@ -77,6 +77,7 @@ DISCORD_TOKEN=$DISCORD_TOKEN
 DASHBOARD_PORT=$DASHBOARD_PORT
 DASHBOARD_HOST=$DASHBOARD_HOST
 EOF
+  $SUDO chown "$BOT_USER:$BOT_GROUP" "$ENV_FILE"
   $SUDO chmod 600 "$ENV_FILE"
 fi
 
@@ -89,6 +90,9 @@ if ! $SUDO grep -Eq '^DISCORD_TOKEN=.+' "$ENV_FILE"; then
     exit 1
   fi
 fi
+
+$SUDO chown "$BOT_USER:$BOT_GROUP" "$ENV_FILE"
+$SUDO chmod 600 "$ENV_FILE"
 
 echo "Installing systemd unit $UNIT_FILE"
 $SUDO tee "$UNIT_FILE" >/dev/null <<EOF
