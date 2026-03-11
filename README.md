@@ -156,6 +156,32 @@ sudo systemctl status manga-tracker-discord-bot --no-pager
 journalctl -u manga-tracker-discord-bot -f
 ```
 
+### Firewall examples (UFW)
+
+Allow dashboard on all interfaces (public/LAN):
+```bash
+sudo ufw allow 9898/tcp
+```
+
+Allow dashboard only from your LAN subnet:
+```bash
+sudo ufw allow from 10.0.0.0/16 to any port 9898 proto tcp
+```
+
+Allow dashboard only over Tailscale:
+```bash
+sudo ufw allow in on tailscale0 to any port 9898 proto tcp
+```
+
+Lock down to Tailscale-only (remove broad 9898 rules):
+```bash
+sudo ufw status numbered
+sudo ufw delete allow 9898
+sudo ufw delete allow 9898/tcp
+sudo ufw allow in on tailscale0 to any port 9898 proto tcp
+sudo ufw status
+```
+
 ## Updating the deployed bot
 
 Use the **About** tab in the admin dashboard:
