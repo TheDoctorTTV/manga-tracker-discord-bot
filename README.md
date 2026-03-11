@@ -93,7 +93,6 @@ This repo includes:
 - `systemd/manga-tracker-discord-bot.service` (template)
 - `scripts/bootstrap.sh` (installs Node.js 20 via NVM, then runs setup)
 - `scripts/setup.sh` (builds binary if needed + registers service)
-- `scripts/update.sh` (pulls latest, rebuilds binary, restarts service)
 - `scripts/build-binary.sh` (builds `dist/manga-tracker`)
 
 ### Setup
@@ -150,26 +149,15 @@ journalctl -u manga-tracker-discord-bot -f
 
 ## Updating the deployed bot
 
-Update to latest commit on current branch:
+Use the **About** tab in the admin dashboard:
+1. Click **Check For Updates**.
+2. Click **Apply Latest Update**.
+3. The bot replaces the binary and restarts (systemd brings it back up).
 
-```bash
-./scripts/update.sh
-```
-
-Update to a specific branch/tag:
-
-```bash
-./scripts/update.sh main
-# or
-./scripts/update.sh v1.0.1
-```
-
-The update script does:
-1. `git fetch --tags origin`
-2. Checkout/pull requested ref (fast-forward only)
-3. `npm ci --omit=dev`
-4. `npm run build:binary`
-5. Restart the `systemd` service
+Optional updater env vars:
+- `GITHUB_TOKEN` (for higher GitHub API rate limits/private release access)
+- `BOT_UPDATE_BINARY_PATH` (override binary file path)
+- `BOT_UPDATE_ASSET_NAME` (force a specific release asset)
 
 ## Troubleshooting
 

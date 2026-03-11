@@ -1,7 +1,8 @@
 require('dotenv').config();
 
-const { REQUIRED_ENV_VARS, MANGA_SOURCES_FILE } = require('./config');
+const { REQUIRED_ENV_VARS, MANGA_SOURCES_FILE, BOT_VERSION, BOT_GITHUB_REPO } = require('./config');
 const { MangaTrackerService } = require('./services/mangaTrackerService');
+const { GitHubReleaseUpdater } = require('./services/githubReleaseUpdater');
 const { createDiscordBot } = require('./bot/discordBot');
 const { startStatusServer } = require('./web/statusServer');
 const { startDashboardServer } = require('./web/dashboardServer');
@@ -18,9 +19,13 @@ async function start() {
   requireEnvVars();
 
   const service = new MangaTrackerService({ mangaSourcesFile: MANGA_SOURCES_FILE });
+  const updater = new GitHubReleaseUpdater({
+    repoUrl: process.env.BOT_GITHUB_REPO || BOT_GITHUB_REPO,
+    currentVersion: BOT_VERSION,
+  });
 
   startStatusServer();
-  startDashboardServer({ service });
+  startDashboardServer({ service, updater });
 
   const bot = createDiscordBot({ service, discordToken: process.env.DISCORD_TOKEN });
   await bot.start();

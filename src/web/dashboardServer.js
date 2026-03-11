@@ -112,6 +112,8 @@ button { cursor: pointer; background: #1f4768; }
 button:hover { background: #285c86; }
 button.warn { background: #6a3434; border-color: #8d4a4a; }
 button.warn:hover { background: #834242; }
+button.success { background: #245b41; border-color: #347a58; }
+button.success:hover { background: #2f7655; }
 .row { display: flex; gap: 8px; }
 .row > * { flex: 1; }
 .user-layout { display: grid; grid-template-columns: 320px 1fr; gap: 12px; }
@@ -212,6 +214,15 @@ pre {
       <div class="card"><strong>GitHub Repo</strong><div id="aboutRepo"></div></div>
       <div class="card"><strong>Update System</strong><div id="aboutUpdater"></div></div>
     </div>
+
+    <h3 style="margin-top:12px;">Updater</h3>
+    <small>Checks GitHub Releases and applies binary updates in-place.</small>
+    <div class="row">
+      <button id="checkUpdate">Check For Updates</button>
+      <button id="applyUpdate" class="success">Apply Latest Update</button>
+    </div>
+    <input id="assetName" placeholder="Optional asset name override (leave blank for auto)" />
+    <pre id="updaterOutput">No updater action yet.</pre>
   </section>
 
   <div id="statusLine" class="status"></div>
@@ -227,6 +238,7 @@ const state = {
   sourceDraft: null,
   userSearch: '',
   about: null,
+  updater: null,
 };
 
 function setStatus(message, ok = true) {
@@ -451,9 +463,52 @@ function renderAbout() {
   document.getElementById('aboutUpdater').textContent = state.about.updateSystem;
 }
 
+function renderUpdater() {
+  const out = document.getElementById('updaterOutput');
+  if (!state.updater) {
+    out.textContent = 'No updater action yet.';
+    return;
+  }
+
+  const lines = [];
+  if (state.updater.lastCheck) {
+    const check = state.updater.lastCheck;
+    lines.push('Last check:');
+    lines.push('  Current version: ' + check.currentVersion);
+    lines.push('  Latest version:  ' + check.latestVersion);
+    lines.push('  Update available: ' + (check.updateAvailable ? 'yes' : 'no'));
+    if (check.release && check.release.htmlUrl) lines.push('  Release URL: ' + check.release.htmlUrl);
+  }
+
+  if (state.updater.lastApply) {
+    lines.push('');
+    lines.push('Last apply:');
+    lines.push('  Applied: ' + (state.updater.lastApply.applied ? 'yes' : 'no'));
+    if (state.updater.lastApply.fromVersion && state.updater.lastApply.toVersion) {
+      lines.push('  Version: ' + state.updater.lastApply.fromVersion + ' -> ' + state.updater.lastApply.toVersion);
+    }
+    if (state.updater.lastApply.asset && state.updater.lastApply.asset.name) {
+      lines.push('  Asset: ' + state.updater.lastApply.asset.name);
+    }
+  }
+
+  if (state.updater.lastError) {
+    lines.push('');
+    lines.push('Last error:');
+    lines.push('  ' + state.updater.lastError);
+  }
+
+  lines.push('');
+  lines.push('Updater state:');
+  lines.push('  Checking: ' + (state.updater.checking ? 'yes' : 'no'));
+  lines.push('  Applying: ' + (state.updater.applying ? 'yes' : 'no'));
+  lines.push('  Binary path: ' + (state.updater.updaterState ? state.updater.updaterState.binaryPath : 'n/a'));
+
+  out.textContent = lines.join('\n');
+}
+
 async function refreshHome() {
-  const payload = await api('/api/admin/home');
-  state.home = payload;
+  state.home = await api('/api/admin/home');
   renderHome();
 }
 
@@ -473,6 +528,11 @@ async function refreshSources() {
 async function refreshAbout() {
   state.about = await api('/api/admin/about');
   renderAbout();
+}
+
+async function refreshUpdater() {
+  state.updater = await api('/api/admin/updater/status');
+  renderUpdater();
 }
 
 async function selectUser(userId) {
@@ -587,8 +647,35 @@ async function saveSources() {
   }
 }
 
+async function checkForUpdates() {
+  try {
+    state.updater = await api('/api/admin/updater/check', { method: 'POST', body: '{}' });
+    renderUpdater();
+    const updateAvailable = state.updater.lastCheck && state.updater.lastCheck.updateAvailable;
+    setStatus(updateAvailable ? 'Update available.' : 'No update available.', true);
+  } catch (error) {
+    setStatus(error.message, false);
+  }
+}
+
+async function applyUpdate() {
+  const assetName = document.getElementById('assetName').value.trim();
+  if (!window.confirm('Apply latest binary update now? The process will restart.')) return;
+
+  try {
+    state.updater = await api('/api/admin/updater/apply', {
+      method: 'POST',
+      body: JSON.stringify({ assetName: assetName || null }),
+    });
+    renderUpdater();
+    setStatus('Update applied. Service restart requested.', true);
+  } catch (error) {
+    setStatus(error.message, false);
+  }
+}
+
 async function refreshAll() {
-  await Promise.all([refreshHome(), refreshUsers(), refreshSources(), refreshAbout()]);
+  await Promise.all([refreshHome(), refreshUsers(), refreshSources(), refreshAbout(), refreshUpdater()]);
 }
 
 document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -615,6 +702,8 @@ document.getElementById('deleteUser').addEventListener('click', deleteUser);
 document.getElementById('addTracked').addEventListener('click', addTracked);
 document.getElementById('addSource').addEventListener('click', addSourceDraft);
 document.getElementById('saveSources').addEventListener('click', saveSources);
+document.getElementById('checkUpdate').addEventListener('click', checkForUpdates);
+document.getElementById('applyUpdate').addEventListener('click', applyUpdate);
 
 (async () => {
   try {
@@ -641,7 +730,22 @@ function formatUptime(seconds) {
   return parts.join(' ');
 }
 
-function startDashboardServer({ service }) {
+function startDashboardServer({ service, updater }) {
+  const updaterState = {
+    checking: false,
+    applying: false,
+    lastCheck: null,
+    lastApply: null,
+    lastError: null,
+  };
+
+  function getUpdaterStatus() {
+    return {
+      ...updaterState,
+      updaterState: updater ? updater.getState() : null,
+    };
+  }
+
   const server = http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url, `http://${req.headers.host || `${DASHBOARD_HOST}:${DASHBOARD_PORT}`}`);
     const pathName = requestUrl.pathname;
@@ -683,8 +787,78 @@ function startDashboardServer({ service }) {
           creator: BOT_CREATOR,
           version: BOT_VERSION,
           repo: BOT_GITHUB_REPO,
-          updateSystem: 'Built into the binary (dashboard updater coming in next phase).',
+          updateSystem: 'Built-in binary updater via GitHub Releases.',
         });
+        return;
+      }
+
+      if (req.method === 'GET' && pathName === '/api/admin/updater/status') {
+        sendJson(res, 200, getUpdaterStatus());
+        return;
+      }
+
+      if (req.method === 'POST' && pathName === '/api/admin/updater/check') {
+        if (!updater) {
+          sendJson(res, 400, { error: 'Updater is not configured' });
+          return;
+        }
+        if (updaterState.checking) {
+          sendJson(res, 409, { error: 'Updater check already in progress' });
+          return;
+        }
+
+        updaterState.checking = true;
+        updaterState.lastError = null;
+        try {
+          updaterState.lastCheck = await updater.checkForUpdate();
+        } catch (error) {
+          updaterState.lastError = error.message;
+          throw error;
+        } finally {
+          updaterState.checking = false;
+        }
+
+        sendJson(res, 200, getUpdaterStatus());
+        return;
+      }
+
+      if (req.method === 'POST' && pathName === '/api/admin/updater/apply') {
+        if (!updater) {
+          sendJson(res, 400, { error: 'Updater is not configured' });
+          return;
+        }
+        if (updaterState.applying) {
+          sendJson(res, 409, { error: 'Updater apply already in progress' });
+          return;
+        }
+
+        const body = await getRequestBody(req);
+        const assetName = typeof body.assetName === 'string' ? body.assetName.trim() : '';
+
+        updaterState.applying = true;
+        updaterState.lastError = null;
+        try {
+          updaterState.lastApply = await updater.applyUpdate({ assetName });
+          updaterState.lastCheck = {
+            currentVersion: updaterState.lastApply.fromVersion,
+            latestVersion: updaterState.lastApply.toVersion,
+            updateAvailable: true,
+            release: updaterState.lastApply.release,
+          };
+        } catch (error) {
+          updaterState.lastError = error.message;
+          throw error;
+        } finally {
+          updaterState.applying = false;
+        }
+
+        sendJson(res, 200, getUpdaterStatus());
+
+        if (updaterState.lastApply && updaterState.lastApply.applied) {
+          setTimeout(() => {
+            process.exit(1);
+          }, 1500);
+        }
         return;
       }
 
