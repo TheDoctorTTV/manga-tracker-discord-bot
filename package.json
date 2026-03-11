@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "node manga-chapter-updates.js",
+    "build:binary": "./scripts/build-binary.sh",
     "setup:systemd": "./scripts/setup.sh",
     "update:deploy": "./scripts/update.sh"
   },
