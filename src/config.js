@@ -8,7 +8,7 @@ const MANGA_SOURCES_FILE = path.resolve(process.env.MANGA_SOURCES_FILE || './man
 const REQUIRED_ENV_VARS = ['DISCORD_TOKEN'];
 const STATUS_PORT = Number.parseInt(process.env.STATUS_PORT || '25589', 10);
 const DASHBOARD_PORT = Number.parseInt(process.env.DASHBOARD_PORT || '9898', 10);
-const DASHBOARD_HOST = process.env.DASHBOARD_HOST || '127.0.0.1';
+const DASHBOARD_HOST = process.env.DASHBOARD_HOST || '0.0.0.0';
 const BOT_CREATOR = 'TheDoctorTTV';
 const BOT_GITHUB_REPO = 'https://github.com/TheDoctorTTV/manga-tracker-discord-bot';
 

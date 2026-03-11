@@ -9,7 +9,7 @@ BOT_USER_DEFAULT="${SUDO_USER:-$USER}"
 BOT_USER="${BOT_USER:-$BOT_USER_DEFAULT}"
 BOT_GROUP="${BOT_GROUP:-$BOT_USER}"
 DASHBOARD_PORT="${DASHBOARD_PORT:-9898}"
-DASHBOARD_HOST="${DASHBOARD_HOST:-127.0.0.1}"
+DASHBOARD_HOST="${DASHBOARD_HOST:-0.0.0.0}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_BINARY="${SCRIPT_DIR}/${BINARY_NAME}"
@@ -120,3 +120,8 @@ echo "Binary:  $TARGET_BINARY"
 echo "Env:     $ENV_FILE"
 echo "Status:  sudo systemctl status $SERVICE_NAME --no-pager"
 echo "Logs:    journalctl -u $SERVICE_NAME -f"
+if [[ "$DASHBOARD_HOST" == "0.0.0.0" ]]; then
+  echo "Dashboard: http://<server-ip-or-domain>:$DASHBOARD_PORT"
+else
+  echo "Dashboard: http://$DASHBOARD_HOST:$DASHBOARD_PORT"
+fi

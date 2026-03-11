@@ -66,7 +66,7 @@ npm -v
    ```env
    DISCORD_TOKEN=your_discord_bot_token
    DASHBOARD_PORT=9898
-   DASHBOARD_HOST=127.0.0.1
+   DASHBOARD_HOST=0.0.0.0
    ```
 4. Install dependencies:
    ```bash
@@ -79,12 +79,12 @@ npm -v
 npm start
 ```
 
-Dashboard URL (local by default):
+Dashboard URL (default bind):
 ```text
-http://127.0.0.1:9898
+http://<server-ip-or-domain>:9898
 ```
 
-The dashboard currently runs without built-in auth while admin features are being completed. Keep it bound to localhost or behind your own network controls.
+The dashboard currently runs without built-in auth while admin features are being completed. Keep it behind your own network controls.
 It includes admin tabs for `Home`, `Users`, `Settings`, and `About`.
 Because the dashboard can edit environment values (including token updates), do not expose it publicly until auth (such as Discord OAuth) is enabled.
 
@@ -116,7 +116,7 @@ Optional overrides when needed:
 - `INSTALL_DIR=/opt/manga-tracker-discord-bot`
 - `BINARY_NAME=manga-tracker`
 - `ENV_FILE=/etc/manga-tracker-discord-bot.env`
-- `DASHBOARD_HOST=127.0.0.1`
+- `DASHBOARD_HOST=0.0.0.0`
 - `DASHBOARD_PORT=9898`
 
 Example with overrides:
