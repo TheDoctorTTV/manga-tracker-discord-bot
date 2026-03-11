@@ -67,11 +67,53 @@ npm -v
    DISCORD_TOKEN=your_discord_bot_token
    DASHBOARD_PORT=9898
    DASHBOARD_HOST=0.0.0.0
+   OAUTH_URL=
+   DISCORD_CLIENT_ID=
+   DISCORD_OAUTH_SCOPES=bot applications.commands
+   DISCORD_OAUTH_PERMISSIONS=0
+   DISCORD_OAUTH_GUILD_ID=
    ```
 4. Install dependencies:
    ```bash
    npm ci
    ```
+
+### Discord OAuth / Bot Invite Setup (Self-Host)
+
+Use this to generate a working invite URL for your hosted bot.
+
+1. Open the [Discord Developer Portal](https://discord.com/developers/applications) and create/select your application.
+2. Go to **Bot** and create a bot user (if not already created), then copy the bot token into `DISCORD_TOKEN`.
+3. Go to **General Information** and copy **Application ID** into `DISCORD_CLIENT_ID`.
+4. Save OAuth env values in `.env` or dashboard **Settings -> Environment**:
+   ```env
+   DISCORD_CLIENT_ID=123456789012345678
+   DISCORD_OAUTH_SCOPES=bot applications.commands
+   DISCORD_OAUTH_PERMISSIONS=0
+   DISCORD_OAUTH_GUILD_ID=
+   OAUTH_URL=
+   ```
+5. Open the dashboard **Home** tab and use **Bot Invite URL** (copy/open buttons) to invite the bot.
+
+For your own server (preselected + locked in invite flow):
+```env
+DISCORD_OAUTH_GUILD_ID=your_server_id
+```
+
+OAuth env reference:
+
+| Variable | Required | Example | Notes |
+| --- | --- | --- | --- |
+| `OAUTH_URL` | No | `https://discord.com/oauth2/authorize?...` | Manual override. If set, this exact URL is used. |
+| `DISCORD_CLIENT_ID` | For generated invite | `123456789012345678` | Discord Application ID (numeric). |
+| `DISCORD_OAUTH_SCOPES` | For generated invite | `bot applications.commands` | Space-separated scopes. |
+| `DISCORD_OAUTH_PERMISSIONS` | For generated invite | `0` | Non-negative integer bitset. |
+| `DISCORD_OAUTH_GUILD_ID` | No | `987654321098765432` | Optional server ID; when set, invite preselects server and disables server picker. |
+
+Invite behavior:
+- `OAUTH_URL` is set: manual URL is used.
+- `OAUTH_URL` is empty and `DISCORD_CLIENT_ID` is valid: URL is generated automatically.
+- `OAUTH_URL` is empty and `DISCORD_CLIENT_ID` is missing/invalid: invite URL is unavailable and dashboard shows why.
 
 ### Quick local run (manual)
 

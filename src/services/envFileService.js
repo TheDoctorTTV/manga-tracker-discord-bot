@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { isNumericString, resolveDiscordOAuthInvite } = require('./discordOAuthService');
 
 const REDACTED_TOKEN_PLACEHOLDER = '********';
 const MANAGED_ENV_DEFAULTS = {
@@ -7,6 +8,10 @@ const MANAGED_ENV_DEFAULTS = {
   DASHBOARD_PORT: '9898',
   DASHBOARD_HOST: '0.0.0.0',
   OAUTH_URL: '',
+  DISCORD_CLIENT_ID: '',
+  DISCORD_OAUTH_SCOPES: 'bot applications.commands',
+  DISCORD_OAUTH_PERMISSIONS: '0',
+  DISCORD_OAUTH_GUILD_ID: '',
 };
 
 const DEFAULT_ENV_FILE_PATH = path.resolve(process.cwd(), '.env');
@@ -74,10 +79,12 @@ function readManagedEnvValues() {
 function getDashboardEnvConfig() {
   const values = readManagedEnvValues();
   const hasDiscordToken = Boolean(String(values.DISCORD_TOKEN || '').trim());
+  const oauthInvite = resolveDiscordOAuthInvite(values);
 
   return {
     envFilePath: ENV_FILE_PATH,
     restartRequired: true,
+    oauthInvite,
     values: {
       ...values,
       DISCORD_TOKEN: hasDiscordToken ? REDACTED_TOKEN_PLACEHOLDER : '',
@@ -109,6 +116,15 @@ function saveDashboardEnvConfig(nextValues) {
       if (!Number.isInteger(port) || port < 1 || port > 65535) {
         throw new Error('DASHBOARD_PORT must be a number between 1 and 65535');
       }
+    }
+    if (key === 'DISCORD_CLIENT_ID' && resolvedValue && !isNumericString(resolvedValue)) {
+      throw new Error('DISCORD_CLIENT_ID must be a numeric Discord application ID');
+    }
+    if (key === 'DISCORD_OAUTH_PERMISSIONS' && !isNumericString(resolvedValue)) {
+      throw new Error('DISCORD_OAUTH_PERMISSIONS must be a non-negative integer');
+    }
+    if (key === 'DISCORD_OAUTH_GUILD_ID' && resolvedValue && !isNumericString(resolvedValue)) {
+      throw new Error('DISCORD_OAUTH_GUILD_ID must be empty or a numeric guild ID');
     }
 
     parsed.valuesByKey.set(key, resolvedValue);

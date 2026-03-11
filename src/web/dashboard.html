@@ -38,6 +38,15 @@
       <small>System health and quick metrics.</small>
     </div>
     <div class="grid two" id="homeCards"></div>
+    <div class="card" style="margin-top:12px;">
+      <strong>Bot Invite URL</strong>
+      <input id="homeOauthInviteUrl" readonly placeholder="Invite URL will appear here" />
+      <div class="row action-row">
+        <button id="copyInviteUrl" type="button">Copy Invite URL</button>
+        <button id="openInviteUrl" type="button">Open Invite URL</button>
+      </div>
+      <small id="homeOauthInviteMeta" class="muted"></small>
+    </div>
     <div id="homeMeta" class="muted"></div>
     </section>
 
@@ -118,6 +127,24 @@
       <div class="card">
         <strong>OAUTH_URL</strong>
         <input id="envOauthUrl" placeholder="discord_oauth_url" />
+        <small>Manual override. If set, this exact URL is used.</small>
+      </div>
+      <div class="card">
+        <strong>DISCORD_CLIENT_ID</strong>
+        <input id="envDiscordClientId" placeholder="123456789012345678" />
+      </div>
+      <div class="card">
+        <strong>DISCORD_OAUTH_SCOPES</strong>
+        <input id="envDiscordOauthScopes" placeholder="bot applications.commands" />
+      </div>
+      <div class="card">
+        <strong>DISCORD_OAUTH_PERMISSIONS</strong>
+        <input id="envDiscordOauthPermissions" placeholder="0" />
+      </div>
+      <div class="card">
+        <strong>DISCORD_OAUTH_GUILD_ID</strong>
+        <input id="envDiscordOauthGuildId" placeholder="optional_server_id" />
+        <small>If set, invite preselects this server and disables server picker.</small>
       </div>
     </div>
     <div id="envMeta" class="muted"></div>
@@ -248,6 +275,21 @@ function renderHome() {
     el.innerHTML = '<div>' + card[0] + '</div><div class="value">' + card[1] + '</div>';
     container.appendChild(el);
   }
+
+  const oauthInvite = state.home.oauthInvite || { source: 'unavailable', url: '', reason: 'Invite is not configured.' };
+  const inviteInput = document.getElementById('homeOauthInviteUrl');
+  const inviteMeta = document.getElementById('homeOauthInviteMeta');
+  const copyBtn = document.getElementById('copyInviteUrl');
+  const openBtn = document.getElementById('openInviteUrl');
+  inviteInput.value = oauthInvite.url || '';
+
+  const sourceLabel = oauthInvite.source || 'unavailable';
+  inviteMeta.textContent =
+    'Source: ' + sourceLabel + (oauthInvite.reason ? ' • ' + oauthInvite.reason : '');
+
+  const hasUrl = Boolean(String(oauthInvite.url || '').trim());
+  copyBtn.disabled = !hasUrl;
+  openBtn.disabled = !hasUrl;
 
   document.getElementById('homeMeta').textContent =
     'Uptime: ' + state.home.uptimeHuman + ' • Memory RSS: ' + state.home.memoryRssMb + ' MB';
@@ -443,6 +485,10 @@ function renderEnvSettings() {
   document.getElementById('envDashboardHost').value = values.DASHBOARD_HOST || '';
   document.getElementById('envDashboardPort').value = values.DASHBOARD_PORT || '';
   document.getElementById('envOauthUrl').value = values.OAUTH_URL || '';
+  document.getElementById('envDiscordClientId').value = values.DISCORD_CLIENT_ID || '';
+  document.getElementById('envDiscordOauthScopes').value = values.DISCORD_OAUTH_SCOPES || '';
+  document.getElementById('envDiscordOauthPermissions').value = values.DISCORD_OAUTH_PERMISSIONS || '';
+  document.getElementById('envDiscordOauthGuildId').value = values.DISCORD_OAUTH_GUILD_ID || '';
   document.getElementById('envMeta').textContent = 'Env file: ' + (state.envConfig.envFilePath || 'unknown');
 }
 
@@ -764,11 +810,16 @@ async function saveEnvConfig() {
           DASHBOARD_HOST: document.getElementById('envDashboardHost').value,
           DASHBOARD_PORT: document.getElementById('envDashboardPort').value,
           OAUTH_URL: document.getElementById('envOauthUrl').value,
+          DISCORD_CLIENT_ID: document.getElementById('envDiscordClientId').value,
+          DISCORD_OAUTH_SCOPES: document.getElementById('envDiscordOauthScopes').value,
+          DISCORD_OAUTH_PERMISSIONS: document.getElementById('envDiscordOauthPermissions').value,
+          DISCORD_OAUTH_GUILD_ID: document.getElementById('envDiscordOauthGuildId').value,
         },
       }),
     });
     renderEnvSettings();
     await refreshBotRuntime();
+    await refreshHome();
     setStatus('Environment saved.', true);
   } catch (error) {
     setStatus(error.message, false);
@@ -870,6 +921,27 @@ document.getElementById('addTracked').addEventListener('click', addTracked);
 document.getElementById('addSource').addEventListener('click', addSourceDraft);
 document.getElementById('saveSources').addEventListener('click', saveSources);
 document.getElementById('saveEnv').addEventListener('click', saveEnvConfig);
+document.getElementById('copyInviteUrl').addEventListener('click', async () => {
+  const value = String(document.getElementById('homeOauthInviteUrl').value || '').trim();
+  if (!value) {
+    setStatus('Invite URL is not available yet.', false);
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(value);
+    setStatus('Invite URL copied.', true);
+  } catch (error) {
+    setStatus('Could not copy invite URL: ' + (error.message || error), false);
+  }
+});
+document.getElementById('openInviteUrl').addEventListener('click', () => {
+  const value = String(document.getElementById('homeOauthInviteUrl').value || '').trim();
+  if (!value) {
+    setStatus('Invite URL is not available yet.', false);
+    return;
+  }
+  window.open(value, '_blank', 'noopener,noreferrer');
+});
 document.getElementById('startBot').addEventListener('click', () => runBotAction('start'));
 document.getElementById('stopBot').addEventListener('click', () => runBotAction('stop'));
 document.getElementById('restartBot').addEventListener('click', () => runBotAction('restart'));

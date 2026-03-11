@@ -135,6 +135,7 @@ function startDashboardServer({ service, updater, botController }) {
         const summary = service.getAdminSummary();
         const memoryRssMb = Math.round((process.memoryUsage().rss / 1024 / 1024) * 10) / 10;
         const botRuntime = botController ? botController.getStatus() : { status: 'unknown' };
+        const envConfig = getDashboardEnvConfig();
         sendJson(res, 200, {
           botStatus: botRuntime.status || 'unknown',
           botRuntime,
@@ -146,6 +147,7 @@ function startDashboardServer({ service, updater, botController }) {
           pid: process.pid,
           uptimeHuman: formatUptime(process.uptime()),
           memoryRssMb,
+          oauthInvite: envConfig.oauthInvite,
         });
         return;
       }

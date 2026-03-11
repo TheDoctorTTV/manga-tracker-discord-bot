@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "node src/app.js",
+    "test": "node --test",
     "build:binary": "./scripts/build-binary.sh",
     "build:release": "./scripts/build-release-package.sh"
   },
