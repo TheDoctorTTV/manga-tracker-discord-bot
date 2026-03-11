@@ -1274,6 +1274,8 @@ client.on('interactionCreate', async (interaction) => {
 
     if (interaction.commandName === 'listmanga') {
         const userData = getUserData(userId);
+        const preferredSource = getPreferredSource(userData);
+        const preferredSourceEntries = userData.tracked.filter((entry) => entry.source === preferredSource);
 
         if (userData.tracked.length === 0) {
             await interaction.reply({
@@ -1289,9 +1291,25 @@ client.on('interactionCreate', async (interaction) => {
             return;
         }
 
+        if (preferredSourceEntries.length === 0) {
+            await interaction.reply({
+                embeds: [
+                    new EmbedBuilder()
+                        .setTitle('📚 Your Tracked Manga List')
+                        .setDescription(
+                            `You are not tracking any manga in **${getSourceDisplayName(preferredSource)}**.\nUse /addmanga while this is your preferred source to add entries here.`
+                        )
+                        .setColor(0xff9900)
+                        .setFooter({ text: `Tracked in other sources: ${userData.tracked.length}` }),
+                ],
+                flags: MessageFlags.Ephemeral,
+            });
+            return;
+        }
+
         let changed = false;
         const names = [];
-        for (const entry of userData.tracked) {
+        for (const entry of preferredSourceEntries) {
             const hadTitle = Boolean(entry.title);
             const title = await resolveTrackedMangaTitle(entry);
             if (!hadTitle && entry.title) changed = true;
@@ -1308,11 +1326,13 @@ client.on('interactionCreate', async (interaction) => {
                     .setTitle('📚 Your Tracked Manga List')
                     .setColor(0x3498db)
                     .setDescription(
-                        userData.tracked
+                        preferredSourceEntries
                             .map((entry, index) => `**${index + 1}.** ${names[index]} (${getSourceDisplayName(entry.source)})`)
                             .join('\n')
                     )
-                    .setFooter({ text: `Total manga: ${names.length}` }),
+                    .setFooter({
+                        text: `Preferred source: ${getSourceDisplayName(preferredSource)} • Total manga: ${names.length}`,
+                    }),
             ],
             flags: MessageFlags.Ephemeral,
         });
