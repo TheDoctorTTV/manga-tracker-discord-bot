@@ -201,7 +201,7 @@ function getDashboardOnboardingConfig(values, oauthInvite, dashboardAuth) {
         ? callbackConfirmed
           ? ''
           : 'Confirm callback URL was added in Discord OAuth2 Redirects.'
-        : 'Dashboard auth fields are incomplete.',
+        : 'Dashboard auth fields are incomplete: ' + (dashboardAuth?.missing?.join(', ') || 'unknown fields'),
     },
   ];
 

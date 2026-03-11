@@ -97,6 +97,26 @@ function setStatus(message, ok = true) {
   el.classList.add('status', ok ? 'ok' : 'err');
 }
 
+async function copyTextToClipboard(value) {
+  const text = String(value || '');
+  if (!text) throw new Error('Nothing to copy');
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  document.body.appendChild(textarea);
+  textarea.select();
+  const ok = document.execCommand('copy');
+  document.body.removeChild(textarea);
+  if (!ok) throw new Error('Clipboard copy is not supported in this browser context.');
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     ...options,
@@ -258,7 +278,7 @@ document.getElementById('copyInviteUrl').addEventListener('click', async () => {
   const value = String(document.getElementById('inviteUrl').value || '').trim();
   if (!value) return setStatus('Invite URL is not available yet.', false);
   try {
-    await navigator.clipboard.writeText(value);
+    await copyTextToClipboard(value);
     setStatus('Invite URL copied.', true);
   } catch (error) {
     setStatus(error.message || String(error), false);
@@ -275,7 +295,7 @@ document.getElementById('copyCallbackUrl').addEventListener('click', async () =>
   const value = String(document.getElementById('callbackUrl').value || '').trim();
   if (!value) return setStatus('Callback URL is not available yet.', false);
   try {
-    await navigator.clipboard.writeText(value);
+    await copyTextToClipboard(value);
     setStatus('Callback URL copied.', true);
   } catch (error) {
     setStatus(error.message || String(error), false);

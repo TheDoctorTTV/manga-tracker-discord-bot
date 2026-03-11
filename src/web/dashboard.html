@@ -338,6 +338,26 @@ function setUserDetailsVisible(visible) {
   if (layout) layout.classList.toggle('has-details', visible);
 }
 
+async function copyTextToClipboard(value) {
+  const text = String(value || '');
+  if (!text) throw new Error('Nothing to copy');
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  document.body.appendChild(textarea);
+  textarea.select();
+  const ok = document.execCommand('copy');
+  document.body.removeChild(textarea);
+  if (!ok) throw new Error('Clipboard copy is not supported in this browser context.');
+}
+
 async function api(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
   const response = await fetch(path, { ...options, headers });
@@ -1535,7 +1555,7 @@ document.getElementById('copyDashboardCallbackUrl').addEventListener('click', as
     return;
   }
   try {
-    await navigator.clipboard.writeText(value);
+    await copyTextToClipboard(value);
     setStatus('OAuth callback URL copied.', true);
   } catch (error) {
     setStatus('Could not copy callback URL: ' + (error.message || error), false);
@@ -1548,7 +1568,7 @@ document.getElementById('copyInviteUrl').addEventListener('click', async () => {
     return;
   }
   try {
-    await navigator.clipboard.writeText(value);
+    await copyTextToClipboard(value);
     setStatus('Invite URL copied.', true);
   } catch (error) {
     setStatus('Could not copy invite URL: ' + (error.message || error), false);
