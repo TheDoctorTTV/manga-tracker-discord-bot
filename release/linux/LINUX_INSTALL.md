@@ -7,6 +7,8 @@ This package contains:
 - `uninstall_systemd_service.sh`
 - `.env.example`
 - `dashboard.html`
+- `login.html`
+- `onboarding.html`
 - `dashboard.css`
 
 ## Quick Install

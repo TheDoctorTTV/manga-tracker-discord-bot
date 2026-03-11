@@ -45,6 +45,8 @@ install -m 755 "$ROOT_DIR/release/linux/uninstall_systemd_service.sh" "$PKG_DIR/
 install -m 644 "$ROOT_DIR/release/linux/LINUX_INSTALL.md" "$PKG_DIR/LINUX_INSTALL.md"
 install -m 644 "$ROOT_DIR/.env.example" "$PKG_DIR/.env.example"
 install -m 644 "$ROOT_DIR/src/web/dashboard.html" "$PKG_DIR/dashboard.html"
+install -m 644 "$ROOT_DIR/src/web/login.html" "$PKG_DIR/login.html"
+install -m 644 "$ROOT_DIR/src/web/onboarding.html" "$PKG_DIR/onboarding.html"
 install -m 644 "$ROOT_DIR/src/web/dashboard.css" "$PKG_DIR/dashboard.css"
 if [[ -f "$ROOT_DIR/WebsiteLogo.ico" ]]; then
   install -m 644 "$ROOT_DIR/WebsiteLogo.ico" "$PKG_DIR/WebsiteLogo.ico"

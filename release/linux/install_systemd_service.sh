@@ -16,6 +16,8 @@ SOURCE_BINARY="${SCRIPT_DIR}/${BINARY_NAME}"
 TARGET_BINARY="${INSTALL_DIR}/${BINARY_NAME}"
 DATA_DIR="${INSTALL_DIR}/manga_data"
 SOURCE_DASHBOARD_HTML="${SCRIPT_DIR}/dashboard.html"
+SOURCE_LOGIN_HTML="${SCRIPT_DIR}/login.html"
+SOURCE_ONBOARDING_HTML="${SCRIPT_DIR}/onboarding.html"
 SOURCE_DASHBOARD_CSS="${SCRIPT_DIR}/dashboard.css"
 SOURCE_DASHBOARD_ICON="${SCRIPT_DIR}/WebsiteLogo.ico"
 UNIT_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
@@ -59,6 +61,14 @@ $SUDO chown "$BOT_USER:$BOT_GROUP" "$TARGET_BINARY"
 
 if [[ -f "$SOURCE_DASHBOARD_HTML" ]]; then
   $SUDO install -m 644 "$SOURCE_DASHBOARD_HTML" "${INSTALL_DIR}/dashboard.html"
+fi
+
+if [[ -f "$SOURCE_LOGIN_HTML" ]]; then
+  $SUDO install -m 644 "$SOURCE_LOGIN_HTML" "${INSTALL_DIR}/login.html"
+fi
+
+if [[ -f "$SOURCE_ONBOARDING_HTML" ]]; then
+  $SUDO install -m 644 "$SOURCE_ONBOARDING_HTML" "${INSTALL_DIR}/onboarding.html"
 fi
 
 if [[ -f "$SOURCE_DASHBOARD_CSS" ]]; then

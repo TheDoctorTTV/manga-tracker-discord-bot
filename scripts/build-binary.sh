@@ -76,6 +76,14 @@ if [[ -f "$ROOT_DIR/src/web/dashboard.html" ]]; then
   cp "$ROOT_DIR/src/web/dashboard.html" "$DIST_DIR/dashboard.html"
 fi
 
+if [[ -f "$ROOT_DIR/src/web/login.html" ]]; then
+  cp "$ROOT_DIR/src/web/login.html" "$DIST_DIR/login.html"
+fi
+
+if [[ -f "$ROOT_DIR/src/web/onboarding.html" ]]; then
+  cp "$ROOT_DIR/src/web/onboarding.html" "$DIST_DIR/onboarding.html"
+fi
+
 if [[ -f "$ROOT_DIR/src/web/dashboard.css" ]]; then
   cp "$ROOT_DIR/src/web/dashboard.css" "$DIST_DIR/dashboard.css"
 fi
