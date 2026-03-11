@@ -1,6 +1,6 @@
 const path = require('path');
 
-const BOT_VERSION = 'v3.1.0';
+const BOT_VERSION = '1.0.0';
 const MANGADEX_API = 'https://api.mangadex.org';
 const COMIX_API_BASE = 'https://comix.to/api/v2';
 const MANGA_DIR = path.resolve(process.env.MANGA_DATA_DIR || './manga_data');
