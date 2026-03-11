@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BOT_USER="${BOT_USER:-$USER}"
 WORKDIR="${BOT_WORKDIR:-$ROOT_DIR}"
 ENV_FILE="${ENV_FILE:-$WORKDIR/.env}"
+BOT_BINARY="${BOT_BINARY:-$WORKDIR/dist/manga-tracker}"
 TEMPLATE_FILE="$ROOT_DIR/systemd/${SERVICE_NAME}.service"
 TMP_SERVICE_FILE="$(mktemp)"
 
@@ -29,13 +30,6 @@ ensure_node_tooling() {
 
 ensure_node_tooling
 
-NODE_BIN="${NODE_BIN:-$(command -v node)}"
-
-if [[ ! -x "$NODE_BIN" ]]; then
-  echo "Node.js binary not found. Run ./scripts/bootstrap.sh first, then retry."
-  exit 1
-fi
-
 if ! command -v npm >/dev/null 2>&1; then
   echo "npm not found. Run ./scripts/bootstrap.sh first, then retry."
   exit 1
@@ -57,15 +51,25 @@ if [[ ! -f "$TEMPLATE_FILE" ]]; then
   exit 1
 fi
 
+if [[ ! -x "$BOT_BINARY" ]]; then
+  echo "Binary not found at $BOT_BINARY"
+  echo "Installing dependencies with npm ci --omit=dev"
+  (cd "$WORKDIR" && npm ci --omit=dev)
+  echo "Building binary with npm run build:binary"
+  (cd "$WORKDIR" && npm run build:binary)
+fi
+
+if [[ ! -x "$BOT_BINARY" ]]; then
+  echo "Binary still missing or not executable: $BOT_BINARY"
+  exit 1
+fi
+
 sed \
   -e "s|__BOT_USER__|$BOT_USER|g" \
   -e "s|__WORKDIR__|$WORKDIR|g" \
   -e "s|__ENV_FILE__|$ENV_FILE|g" \
-  -e "s|__NODE_BIN__|$NODE_BIN|g" \
+  -e "s|__BIN_PATH__|$BOT_BINARY|g" \
   "$TEMPLATE_FILE" > "$TMP_SERVICE_FILE"
-
-echo "Installing dependencies with npm ci --omit=dev"
-(cd "$WORKDIR" && npm ci --omit=dev)
 
 echo "Installing systemd unit"
 sudo install -m 644 "$TMP_SERVICE_FILE" "/etc/systemd/system/${SERVICE_NAME}.service"

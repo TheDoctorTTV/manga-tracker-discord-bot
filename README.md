@@ -92,8 +92,9 @@ If `DASHBOARD_ADMIN_TOKEN` is set, enter it in the dashboard header to unlock AP
 This repo includes:
 - `systemd/manga-tracker-discord-bot.service` (template)
 - `scripts/bootstrap.sh` (installs Node.js 20 via NVM, then runs setup)
-- `scripts/setup.sh` (installs dependencies + registers service)
-- `scripts/update.sh` (pulls latest + restarts service)
+- `scripts/setup.sh` (builds binary if needed + registers service)
+- `scripts/update.sh` (pulls latest, rebuilds binary, restarts service)
+- `scripts/build-binary.sh` (builds `dist/manga-tracker`)
 
 ### Setup
 
@@ -113,7 +114,14 @@ Optional overrides when needed:
 - `BOT_USER=<linux-user> ./scripts/setup.sh`
 - `BOT_WORKDIR=/absolute/path/to/repo ./scripts/setup.sh`
 - `ENV_FILE=/absolute/path/to/.env ./scripts/setup.sh`
-- `NODE_BIN=/usr/bin/node ./scripts/setup.sh`
+- `BOT_BINARY=/absolute/path/to/manga-tracker ./scripts/setup.sh`
+
+### Build binary manually
+
+```bash
+npm run build:binary
+./dist/manga-tracker
+```
 
 ### Start
 
@@ -160,7 +168,8 @@ The update script does:
 1. `git fetch --tags origin`
 2. Checkout/pull requested ref (fast-forward only)
 3. `npm ci --omit=dev`
-4. Restart the `systemd` service
+4. `npm run build:binary`
+5. Restart the `systemd` service
 
 ## Troubleshooting
 

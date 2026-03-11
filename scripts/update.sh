@@ -57,6 +57,9 @@ fi
 echo "Installing dependencies"
 npm ci --omit=dev
 
+echo "Building binary"
+npm run build:binary
+
 echo "Restarting service"
 sudo systemctl restart "$SERVICE_NAME"
 sudo systemctl status "$SERVICE_NAME" --no-pager
