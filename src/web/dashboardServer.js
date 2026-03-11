@@ -12,6 +12,7 @@ const {
   MIN_AUTO_CHECK_HOURS,
   MAX_AUTO_CHECK_HOURS,
 } = require('../config');
+const { getDashboardEnvConfig, saveDashboardEnvConfig } = require('../services/envFileService');
 
 function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -154,6 +155,18 @@ function startDashboardServer({ service, updater }) {
           repo: BOT_GITHUB_REPO,
           updateSystem: 'Built-in updater uses the public GitHub Releases feed and a detached worker process to replace/restart the bot binary.',
         });
+        return;
+      }
+
+      if (req.method === 'GET' && pathName === '/api/admin/env') {
+        sendJson(res, 200, getDashboardEnvConfig());
+        return;
+      }
+
+      if (req.method === 'PUT' && pathName === '/api/admin/env') {
+        const body = await getRequestBody(req);
+        const values = body && typeof body.values === 'object' ? body.values : {};
+        sendJson(res, 200, saveDashboardEnvConfig(values));
         return;
       }
 

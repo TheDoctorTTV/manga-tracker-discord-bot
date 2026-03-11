@@ -6,6 +6,8 @@ This package contains:
 - `install_systemd_service.sh`
 - `uninstall_systemd_service.sh`
 - `.env.example`
+- `dashboard.html`
+- `dashboard.css`
 
 ## Quick Install
 

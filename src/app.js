@@ -1,4 +1,7 @@
-require('dotenv').config();
+const { ensureEnvFile, ENV_FILE_PATH } = require('./services/envFileService');
+
+ensureEnvFile();
+require('dotenv').config({ path: ENV_FILE_PATH });
 
 const { REQUIRED_ENV_VARS, MANGA_SOURCES_FILE, BOT_VERSION, BOT_GITHUB_REPO } = require('./config');
 const { MangaTrackerService } = require('./services/mangaTrackerService');
@@ -20,7 +23,7 @@ async function start() {
 
   const service = new MangaTrackerService({ mangaSourcesFile: MANGA_SOURCES_FILE });
   const updater = new GitHubReleaseUpdater({
-    repoUrl: process.env.BOT_GITHUB_REPO || BOT_GITHUB_REPO,
+    repoUrl: BOT_GITHUB_REPO,
     currentVersion: BOT_VERSION,
   });
 

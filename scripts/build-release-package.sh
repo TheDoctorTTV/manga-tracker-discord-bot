@@ -39,6 +39,8 @@ install -m 755 "$ROOT_DIR/release/linux/install_systemd_service.sh" "$PKG_DIR/in
 install -m 755 "$ROOT_DIR/release/linux/uninstall_systemd_service.sh" "$PKG_DIR/uninstall_systemd_service.sh"
 install -m 644 "$ROOT_DIR/release/linux/LINUX_INSTALL.md" "$PKG_DIR/LINUX_INSTALL.md"
 install -m 644 "$ROOT_DIR/.env.example" "$PKG_DIR/.env.example"
+install -m 644 "$ROOT_DIR/src/web/dashboard.html" "$PKG_DIR/dashboard.html"
+install -m 644 "$ROOT_DIR/src/web/dashboard.css" "$PKG_DIR/dashboard.css"
 
 echo "[3/4] Creating archive $ARCHIVE_PATH"
 mkdir -p "$RELEASE_DIR"

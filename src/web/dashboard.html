@@ -83,6 +83,30 @@
     <div id="sourcesList"></div>
     <button id="addSource">Add Source</button>
     <button id="saveSources">Save Sources</button>
+
+    <h3 style="margin-top:12px;">Environment</h3>
+    <small>Saved to the bot environment file. Restart the bot after changing values.</small>
+    <div class="grid two">
+      <div class="card">
+        <strong>DISCORD_TOKEN</strong>
+        <input id="envDiscordToken" type="password" placeholder="Bot token" autocomplete="off" />
+        <small>Redacted after save. Stored unredacted only in the env file on disk.</small>
+      </div>
+      <div class="card">
+        <strong>DASHBOARD_HOST</strong>
+        <input id="envDashboardHost" placeholder="127.0.0.1" />
+      </div>
+      <div class="card">
+        <strong>DASHBOARD_PORT</strong>
+        <input id="envDashboardPort" type="number" min="1" max="65535" placeholder="9898" />
+      </div>
+      <div class="card">
+        <strong>OAUTH_URL</strong>
+        <input id="envOauthUrl" placeholder="discord_oauth_url" />
+      </div>
+    </div>
+    <div id="envMeta" class="muted"></div>
+    <button id="saveEnv">Save Environment</button>
     </section>
 
     <section id="tab-about" class="panel tab-panel hidden">
@@ -130,6 +154,7 @@ const state = {
   about: null,
   updater: null,
   releaseMode: 'release',
+  envConfig: null,
 };
 
 function setStatus(message, ok = true) {
@@ -374,6 +399,16 @@ function renderAbout() {
   document.getElementById('aboutUpdater').textContent = state.about.updateSystem;
 }
 
+function renderEnvSettings() {
+  if (!state.envConfig || !state.envConfig.values) return;
+  const values = state.envConfig.values;
+  document.getElementById('envDiscordToken').value = values.DISCORD_TOKEN || '';
+  document.getElementById('envDashboardHost').value = values.DASHBOARD_HOST || '';
+  document.getElementById('envDashboardPort').value = values.DASHBOARD_PORT || '';
+  document.getElementById('envOauthUrl').value = values.OAUTH_URL || '';
+  document.getElementById('envMeta').textContent = 'Env file: ' + (state.envConfig.envFilePath || 'unknown');
+}
+
 function renderUpdater() {
   const out = document.getElementById('updaterOutput');
   const versionSelect = document.getElementById('releaseVersion');
@@ -475,6 +510,11 @@ async function refreshUpdater() {
     state.releaseMode = state.updater.releaseMode;
   }
   renderUpdater();
+}
+
+async function refreshEnvConfig() {
+  state.envConfig = await api('/api/admin/env');
+  renderEnvSettings();
 }
 
 async function selectUser(userId) {
@@ -598,6 +638,26 @@ async function saveSources() {
   }
 }
 
+async function saveEnvConfig() {
+  try {
+    state.envConfig = await api('/api/admin/env', {
+      method: 'PUT',
+      body: JSON.stringify({
+        values: {
+          DISCORD_TOKEN: document.getElementById('envDiscordToken').value,
+          DASHBOARD_HOST: document.getElementById('envDashboardHost').value,
+          DASHBOARD_PORT: document.getElementById('envDashboardPort').value,
+          OAUTH_URL: document.getElementById('envOauthUrl').value,
+        },
+      }),
+    });
+    renderEnvSettings();
+    setStatus('Environment saved. Restart the bot to apply runtime config changes.', true);
+  } catch (error) {
+    setStatus(error.message, false);
+  }
+}
+
 async function checkForUpdates() {
   const releaseMode = document.getElementById('releaseMode').value;
   const selectedTag = document.getElementById('releaseVersion').value.trim();
@@ -644,7 +704,7 @@ async function applyUpdate() {
 
 async function refreshAll() {
   await refreshAdapters();
-  await Promise.all([refreshHome(), refreshUsers(), refreshSources(), refreshAbout(), refreshUpdater()]);
+  await Promise.all([refreshHome(), refreshUsers(), refreshSources(), refreshAbout(), refreshUpdater(), refreshEnvConfig()]);
 }
 
 document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -671,6 +731,7 @@ document.getElementById('deleteUser').addEventListener('click', deleteUser);
 document.getElementById('addTracked').addEventListener('click', addTracked);
 document.getElementById('addSource').addEventListener('click', addSourceDraft);
 document.getElementById('saveSources').addEventListener('click', saveSources);
+document.getElementById('saveEnv').addEventListener('click', saveEnvConfig);
 document.getElementById('checkUpdate').addEventListener('click', checkForUpdates);
 document.getElementById('applyUpdate').addEventListener('click', applyUpdate);
 document.getElementById('releaseMode').addEventListener('change', async (event) => {

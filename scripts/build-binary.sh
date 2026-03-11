@@ -72,5 +72,13 @@ if [[ -f "$ROOT_DIR/manga-sources.json" ]]; then
   cp "$ROOT_DIR/manga-sources.json" "$DIST_DIR/manga-sources.json"
 fi
 
+if [[ -f "$ROOT_DIR/src/web/dashboard.html" ]]; then
+  cp "$ROOT_DIR/src/web/dashboard.html" "$DIST_DIR/dashboard.html"
+fi
+
+if [[ -f "$ROOT_DIR/src/web/dashboard.css" ]]; then
+  cp "$ROOT_DIR/src/web/dashboard.css" "$DIST_DIR/dashboard.css"
+fi
+
 echo "Binary build complete: $OUTPUT_BIN"
 echo "Run with: $OUTPUT_BIN"

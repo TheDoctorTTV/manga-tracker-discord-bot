@@ -10,12 +10,12 @@ BOT_USER="${BOT_USER:-$BOT_USER_DEFAULT}"
 BOT_GROUP="${BOT_GROUP:-$BOT_USER}"
 DASHBOARD_PORT="${DASHBOARD_PORT:-9898}"
 DASHBOARD_HOST="${DASHBOARD_HOST:-127.0.0.1}"
-BOT_CREATOR="${BOT_CREATOR:-TheDoctorTTV}"
-BOT_GITHUB_REPO="${BOT_GITHUB_REPO:-https://github.com/TheDoctorTTV/manga-tracker-discord-bot}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_BINARY="${SCRIPT_DIR}/${BINARY_NAME}"
 TARGET_BINARY="${INSTALL_DIR}/${BINARY_NAME}"
+SOURCE_DASHBOARD_HTML="${SCRIPT_DIR}/dashboard.html"
+SOURCE_DASHBOARD_CSS="${SCRIPT_DIR}/dashboard.css"
 UNIT_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
 if [[ $EUID -eq 0 ]]; then
@@ -52,6 +52,14 @@ $SUDO mkdir -p "$INSTALL_DIR"
 $SUDO install -m 755 "$SOURCE_BINARY" "$TARGET_BINARY"
 $SUDO chown "$BOT_USER:$BOT_GROUP" "$TARGET_BINARY"
 
+if [[ -f "$SOURCE_DASHBOARD_HTML" ]]; then
+  $SUDO install -m 644 "$SOURCE_DASHBOARD_HTML" "${INSTALL_DIR}/dashboard.html"
+fi
+
+if [[ -f "$SOURCE_DASHBOARD_CSS" ]]; then
+  $SUDO install -m 644 "$SOURCE_DASHBOARD_CSS" "${INSTALL_DIR}/dashboard.css"
+fi
+
 if [[ ! -f "$ENV_FILE" ]]; then
   if [[ -z "${DISCORD_TOKEN:-}" ]]; then
     echo "Missing $ENV_FILE and DISCORD_TOKEN is not set."
@@ -64,8 +72,6 @@ if [[ ! -f "$ENV_FILE" ]]; then
 DISCORD_TOKEN=$DISCORD_TOKEN
 DASHBOARD_PORT=$DASHBOARD_PORT
 DASHBOARD_HOST=$DASHBOARD_HOST
-BOT_CREATOR=$BOT_CREATOR
-BOT_GITHUB_REPO=$BOT_GITHUB_REPO
 EOF
   $SUDO chmod 600 "$ENV_FILE"
 fi
@@ -93,6 +99,7 @@ User=$BOT_USER
 Group=$BOT_GROUP
 WorkingDirectory=$INSTALL_DIR
 EnvironmentFile=$ENV_FILE
+Environment=BOT_ENV_FILE=$ENV_FILE
 ExecStart=$TARGET_BINARY
 Restart=on-failure
 RestartSec=5
