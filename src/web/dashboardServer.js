@@ -12,7 +12,18 @@ const {
   MIN_AUTO_CHECK_HOURS,
   MAX_AUTO_CHECK_HOURS,
 } = require('../config');
-const { getDashboardEnvConfig, saveDashboardEnvConfig } = require('../services/envFileService');
+const { getDashboardEnvConfig, getDashboardRuntimeConfig, saveDashboardEnvConfig } = require('../services/envFileService');
+const {
+  randomToken,
+  buildDiscordLoginUrl,
+  exchangeDiscordCode,
+  fetchDiscordIdentity,
+  computeAllowedGuildIds,
+} = require('../services/dashboardAuthService');
+
+const DASHBOARD_SESSION_COOKIE = 'dashboard_session';
+const DASHBOARD_OAUTH_STATE_COOKIE = 'dashboard_oauth_state';
+const OAUTH_STATE_TTL_SECONDS = 10 * 60;
 
 function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -27,6 +38,11 @@ function sendHtml(res, html) {
 function sendCss(res, css) {
   res.writeHead(200, { 'Content-Type': 'text/css; charset=utf-8' });
   res.end(css);
+}
+
+function sendRedirect(res, location) {
+  res.writeHead(302, { Location: location });
+  res.end();
 }
 
 function getRequestBody(req) {
@@ -46,6 +62,66 @@ function getRequestBody(req) {
     });
     req.on('error', reject);
   });
+}
+
+function parseCookies(req) {
+  const header = req.headers.cookie;
+  if (!header) return {};
+  const cookies = {};
+  for (const part of header.split(';')) {
+    const [rawKey, ...rawValue] = part.split('=');
+    const key = (rawKey || '').trim();
+    if (!key) continue;
+    cookies[key] = decodeURIComponent(rawValue.join('=').trim());
+  }
+  return cookies;
+}
+
+function setCookie(res, name, value, options = {}) {
+  const parts = [`${name}=${encodeURIComponent(value)}`];
+  parts.push(`Path=${options.path || '/'}`);
+  if (options.httpOnly !== false) parts.push('HttpOnly');
+  if (options.sameSite) parts.push(`SameSite=${options.sameSite}`);
+  if (options.maxAge != null) parts.push(`Max-Age=${Math.max(0, Number.parseInt(options.maxAge, 10) || 0)}`);
+  if (options.secure) parts.push('Secure');
+  const existing = res.getHeader('Set-Cookie');
+  const nextCookie = parts.join('; ');
+  if (!existing) {
+    res.setHeader('Set-Cookie', nextCookie);
+    return;
+  }
+  if (Array.isArray(existing)) {
+    res.setHeader('Set-Cookie', [...existing, nextCookie]);
+    return;
+  }
+  res.setHeader('Set-Cookie', [existing, nextCookie]);
+}
+
+function clearCookie(res, name) {
+  setCookie(res, name, '', { maxAge: 0, httpOnly: true, sameSite: 'Lax' });
+}
+
+function isLocalRequest(req) {
+  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  const host = String(req.headers.host || '').split(':')[0].trim().toLowerCase();
+  const remote = String(req.socket?.remoteAddress || '').trim();
+  const candidates = [forwarded, remote, host].filter(Boolean);
+  return candidates.some((value) => {
+    const normalized = value.replace(/^::ffff:/, '').toLowerCase();
+    return normalized === '127.0.0.1' || normalized === '::1' || normalized === 'localhost';
+  });
+}
+
+function formatUptime(seconds) {
+  const total = Math.max(0, Math.floor(seconds));
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const parts = [];
+  if (days) parts.push(`${days}d`);
+  if (hours || days) parts.push(`${hours}h`);
+  parts.push(`${minutes}m`);
+  return parts.join(' ');
 }
 
 const DASHBOARD_HTML_PATH = path.join(__dirname, 'dashboard.html');
@@ -93,18 +169,6 @@ function getDashboardIcon() {
   return dashboardIcon;
 }
 
-function formatUptime(seconds) {
-  const total = Math.max(0, Math.floor(seconds));
-  const days = Math.floor(total / 86400);
-  const hours = Math.floor((total % 86400) / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  const parts = [];
-  if (days) parts.push(`${days}d`);
-  if (hours || days) parts.push(`${hours}h`);
-  parts.push(`${minutes}m`);
-  return parts.join(' ');
-}
-
 function startDashboardServer({ service, updater, botController }) {
   const updaterState = {
     checking: false,
@@ -115,12 +179,104 @@ function startDashboardServer({ service, updater, botController }) {
     availableReleases: [],
     releaseMode: 'release',
   };
+  const sessions = new Map();
+
+  function pruneSessions() {
+    const now = Date.now();
+    for (const [token, session] of sessions.entries()) {
+      if (!session || session.expiresAt <= now) {
+        sessions.delete(token);
+      }
+    }
+  }
+
+  function getSession(req) {
+    pruneSessions();
+    const cookies = parseCookies(req);
+    const token = cookies[DASHBOARD_SESSION_COOKIE];
+    if (!token) return null;
+    const session = sessions.get(token);
+    if (!session) return null;
+    return { token, ...session };
+  }
 
   function getUpdaterStatus() {
     return {
       ...updaterState,
       updaterState: updater ? updater.getState() : null,
     };
+  }
+
+  function getAccessContext(req) {
+    const runtime = getDashboardRuntimeConfig();
+    const local = isLocalRequest(req);
+    const session = getSession(req);
+
+    if (!runtime.dashboardAuth.enabled || !runtime.dashboardAuth.configured) {
+      if (local) {
+        return {
+          runtime,
+          local,
+          session: null,
+          authenticated: true,
+          allowed: true,
+          bootstrapMode: true,
+          reason: null,
+        };
+      }
+
+      return {
+        runtime,
+        local,
+        session: null,
+        authenticated: false,
+        allowed: false,
+        bootstrapMode: true,
+        reason: 'Dashboard auth is not configured. Access is limited to localhost during setup.',
+      };
+    }
+
+    if (!session) {
+      return {
+        runtime,
+        local,
+        session: null,
+        authenticated: false,
+        allowed: false,
+        bootstrapMode: false,
+        reason: 'Authentication required.',
+      };
+    }
+
+    return {
+      runtime,
+      local,
+      session,
+      authenticated: true,
+      allowed: true,
+      bootstrapMode: false,
+      reason: null,
+    };
+  }
+
+  function resolveGuildContext(requestUrl, access) {
+    const guildId = String(requestUrl.searchParams.get('guildId') || '').trim();
+    if (!/^\d+$/.test(guildId)) {
+      throw new Error('guildId query parameter is required and must be numeric');
+    }
+
+    const managedGuildIds = access.runtime.dashboardAuth.managedGuildIds;
+    if (!managedGuildIds.includes(guildId)) {
+      throw new Error('guildId is not in DASHBOARD_MANAGED_GUILD_IDS');
+    }
+
+    if (access.session && Array.isArray(access.session.allowedGuildIds) && !access.session.allowedGuildIds.includes(guildId)) {
+      const error = new Error('You do not have admin permission for this guild');
+      error.statusCode = 403;
+      throw error;
+    }
+
+    return guildId;
   }
 
   const server = http.createServer(async (req, res) => {
@@ -153,14 +309,145 @@ function startDashboardServer({ service, updater, botController }) {
       return;
     }
 
+    if (req.method === 'GET' && pathName === '/auth/discord/login') {
+      const runtime = getDashboardRuntimeConfig();
+      if (!runtime.dashboardAuth.configured) {
+        sendJson(res, 400, { error: 'Dashboard auth is not configured yet.' });
+        return;
+      }
+
+      const state = randomToken(24);
+      const loginUrl = buildDiscordLoginUrl({
+        clientId: runtime.values.DISCORD_AUTH_CLIENT_ID,
+        redirectUri: runtime.dashboardAuth.callbackUrl,
+        state,
+      });
+
+      setCookie(res, DASHBOARD_OAUTH_STATE_COOKIE, state, {
+        maxAge: OAUTH_STATE_TTL_SECONDS,
+        httpOnly: true,
+        sameSite: 'Lax',
+        secure: runtime.dashboardAuth.publicUrl.startsWith('https://'),
+      });
+      sendRedirect(res, loginUrl);
+      return;
+    }
+
+    if (req.method === 'GET' && pathName === '/auth/discord/callback') {
+      const runtime = getDashboardRuntimeConfig();
+      if (!runtime.dashboardAuth.configured) {
+        sendJson(res, 400, { error: 'Dashboard auth is not configured yet.' });
+        return;
+      }
+
+      const code = String(requestUrl.searchParams.get('code') || '').trim();
+      const state = String(requestUrl.searchParams.get('state') || '').trim();
+      const cookies = parseCookies(req);
+      const expectedState = String(cookies[DASHBOARD_OAUTH_STATE_COOKIE] || '').trim();
+
+      if (!code || !state || !expectedState || state !== expectedState) {
+        clearCookie(res, DASHBOARD_OAUTH_STATE_COOKIE);
+        sendJson(res, 400, { error: 'Invalid OAuth callback state or code.' });
+        return;
+      }
+
+      try {
+        const tokenResult = await exchangeDiscordCode({
+          code,
+          clientId: runtime.values.DISCORD_AUTH_CLIENT_ID,
+          clientSecret: runtime.values.DISCORD_AUTH_CLIENT_SECRET,
+          redirectUri: runtime.dashboardAuth.callbackUrl,
+        });
+
+        const accessToken = String(tokenResult?.access_token || '').trim();
+        if (!accessToken) throw new Error('Discord token exchange failed');
+
+        const identity = await fetchDiscordIdentity(accessToken);
+        const allowedGuildIds = computeAllowedGuildIds({
+          guilds: identity.guilds,
+          managedGuildIds: runtime.dashboardAuth.managedGuildIds,
+        });
+
+        if (allowedGuildIds.length === 0) {
+          clearCookie(res, DASHBOARD_OAUTH_STATE_COOKIE);
+          sendHtml(
+            res,
+            '<!doctype html><html><body><h2>Access denied</h2><p>Your Discord account is not an administrator in any managed guild.</p></body></html>'
+          );
+          return;
+        }
+
+        const sessionToken = randomToken(24);
+        const now = Date.now();
+        const maxAgeSeconds = runtime.dashboardAuth.sessionHours * 60 * 60;
+        sessions.set(sessionToken, {
+          user: {
+            id: identity.user?.id || '',
+            username: identity.user?.username || '',
+            globalName: identity.user?.global_name || null,
+            avatar: identity.user?.avatar || null,
+          },
+          allowedGuildIds,
+          createdAt: now,
+          expiresAt: now + maxAgeSeconds * 1000,
+        });
+
+        setCookie(res, DASHBOARD_SESSION_COOKIE, sessionToken, {
+          maxAge: maxAgeSeconds,
+          httpOnly: true,
+          sameSite: 'Lax',
+          secure: runtime.dashboardAuth.publicUrl.startsWith('https://'),
+        });
+        clearCookie(res, DASHBOARD_OAUTH_STATE_COOKIE);
+        sendRedirect(res, '/');
+      } catch (error) {
+        clearCookie(res, DASHBOARD_OAUTH_STATE_COOKIE);
+        sendJson(res, 400, { error: error.message || 'Discord auth failed' });
+      }
+      return;
+    }
+
+    if ((req.method === 'POST' || req.method === 'GET') && pathName === '/auth/logout') {
+      const cookies = parseCookies(req);
+      const sessionToken = cookies[DASHBOARD_SESSION_COOKIE];
+      if (sessionToken) {
+        sessions.delete(sessionToken);
+      }
+      clearCookie(res, DASHBOARD_SESSION_COOKIE);
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
     if (!pathName.startsWith('/api/')) {
       sendJson(res, 404, { error: 'Not Found' });
       return;
     }
 
+    const access = getAccessContext(req);
+    if (req.method === 'GET' && pathName === '/api/admin/auth/me') {
+      sendJson(res, 200, {
+        authenticated: access.authenticated,
+        authEnabled: access.runtime.dashboardAuth.enabled,
+        authConfigured: access.runtime.dashboardAuth.configured,
+        bootstrapMode: access.bootstrapMode,
+        reason: access.reason,
+        user: access.session ? access.session.user : null,
+        allowedGuildIds: access.session ? access.session.allowedGuildIds : access.runtime.dashboardAuth.managedGuildIds,
+        managedGuildIds: access.runtime.dashboardAuth.managedGuildIds,
+        defaultGuildId: access.runtime.dashboardAuth.managedGuildIds[0] || null,
+      });
+      return;
+    }
+
+    if (!access.allowed) {
+      sendJson(res, access.runtime.dashboardAuth.configured ? 401 : 403, { error: access.reason });
+      return;
+    }
+
     try {
       if (req.method === 'GET' && pathName === '/api/admin/home') {
-        const summary = service.getAdminSummary();
+        const guildId = resolveGuildContext(requestUrl, access);
+        const summary = service.getAdminSummaryForGuild(guildId);
         const memoryRssMb = Math.round((process.memoryUsage().rss / 1024 / 1024) * 10) / 10;
         const botRuntime = botController ? botController.getStatus() : { status: 'unknown' };
         const envConfig = getDashboardEnvConfig();
@@ -172,10 +459,20 @@ function startDashboardServer({ service, updater, botController }) {
           sources: summary.sources,
           enabledSources: summary.enabledSources,
           defaultSource: summary.defaultSource,
+          activeGuildId: guildId,
           pid: process.pid,
           uptimeHuman: formatUptime(process.uptime()),
           memoryRssMb,
           oauthInvite: envConfig.oauthInvite,
+        });
+        return;
+      }
+
+      if (req.method === 'GET' && pathName === '/api/admin/guilds') {
+        const guildIds = access.session ? access.session.allowedGuildIds : access.runtime.dashboardAuth.managedGuildIds;
+        sendJson(res, 200, {
+          guildIds,
+          defaultGuildId: guildIds[0] || null,
         });
         return;
       }
@@ -341,20 +638,23 @@ function startDashboardServer({ service, updater, botController }) {
       }
 
       if (req.method === 'GET' && pathName === '/api/users') {
-        sendJson(res, 200, { users: service.listUsers() });
+        const guildId = resolveGuildContext(requestUrl, access);
+        sendJson(res, 200, { users: service.listGuildUsers(guildId) });
         return;
       }
 
       const userMatch = pathName.match(/^\/api\/users\/(\d+)$/);
       if (req.method === 'GET' && userMatch) {
+        const guildId = resolveGuildContext(requestUrl, access);
         const userId = userMatch[1];
-        sendJson(res, 200, { user: service.getUserData(userId) });
+        sendJson(res, 200, { user: service.getGuildUserData(guildId, userId, { allowLegacyFallback: true }) });
         return;
       }
 
       if (req.method === 'DELETE' && userMatch) {
+        const guildId = resolveGuildContext(requestUrl, access);
         const userId = userMatch[1];
-        const deleted = service.deleteUser(userId);
+        const deleted = service.deleteGuildUser(guildId, userId);
         if (!deleted) {
           sendJson(res, 404, { error: 'User not found' });
           return;
@@ -365,9 +665,10 @@ function startDashboardServer({ service, updater, botController }) {
 
       const settingsMatch = pathName.match(/^\/api\/users\/(\d+)\/settings$/);
       if (req.method === 'PUT' && settingsMatch) {
+        const guildId = resolveGuildContext(requestUrl, access);
         const userId = settingsMatch[1];
         const body = await getRequestBody(req);
-        const updated = service.setUserSettings(userId, {
+        const updated = service.setGuildUserSettings(guildId, userId, {
           preferredSource: body.preferredSource,
           autoCheckIntervalHours: body.autoCheckIntervalHours,
         });
@@ -377,9 +678,10 @@ function startDashboardServer({ service, updater, botController }) {
 
       const trackedMatch = pathName.match(/^\/api\/users\/(\d+)\/tracked$/);
       if (req.method === 'POST' && trackedMatch) {
+        const guildId = resolveGuildContext(requestUrl, access);
         const userId = trackedMatch[1];
         const body = await getRequestBody(req);
-        const result = await service.addTrackedByInput(userId, body.input, body.sourceHint);
+        const result = await service.addTrackedByInputForGuild(guildId, userId, body.input, body.sourceHint);
 
         if (result.status === 'already_tracked') {
           sendJson(res, 200, { status: result.status, message: 'This manga is already tracked.' });
@@ -399,6 +701,7 @@ function startDashboardServer({ service, updater, botController }) {
       }
 
       if (req.method === 'DELETE' && trackedMatch) {
+        const guildId = resolveGuildContext(requestUrl, access);
         const userId = trackedMatch[1];
         const source = (requestUrl.searchParams.get('source') || '').trim().toLowerCase();
         const mangaId = (requestUrl.searchParams.get('mangaId') || '').trim();
@@ -408,7 +711,7 @@ function startDashboardServer({ service, updater, botController }) {
           return;
         }
 
-        const removed = service.removeTrackedByTarget(userId, { source, mangaId });
+        const removed = service.removeTrackedByTargetForGuild(guildId, userId, { source, mangaId });
         if (!removed) {
           sendJson(res, 404, { error: 'Tracked manga entry not found.' });
           return;
@@ -420,13 +723,13 @@ function startDashboardServer({ service, updater, botController }) {
 
       sendJson(res, 404, { error: 'Route not found' });
     } catch (error) {
-      sendJson(res, 400, { error: error.message || 'Request failed' });
+      const statusCode = Number.isInteger(error.statusCode) ? error.statusCode : 400;
+      sendJson(res, statusCode, { error: error.message || 'Request failed' });
     }
   });
 
   server.listen(DASHBOARD_PORT, DASHBOARD_HOST, () => {
     console.log(`Admin dashboard running at http://${DASHBOARD_HOST}:${DASHBOARD_PORT}`);
-    console.warn('Dashboard auth is intentionally disabled for now. Restrict network exposure at the host/firewall level.');
   });
 
   return server;

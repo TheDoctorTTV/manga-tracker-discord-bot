@@ -30,7 +30,13 @@
         <strong>Operations Hub</strong>
         <div class="muted">Live controls for sources, tracking, and updater state.</div>
       </div>
-      <span class="status-chip">Admin Surface</span>
+      <div class="row status-actions">
+        <div>
+          <label for="activeGuildSelect">Active Guild</label>
+          <select id="activeGuildSelect"></select>
+        </div>
+        <button id="logoutBtn" type="button">Logout</button>
+      </div>
     </div>
 
     <section id="tab-home" class="panel tab-panel">
@@ -148,6 +154,37 @@
         <small>If set, invite preselects this server and disables server picker.</small>
       </div>
     </div>
+    <h3 style="margin-top:12px;">Dashboard Auth</h3>
+    <small>Discord OAuth login for dashboard access control.</small>
+    <div class="grid two">
+      <div class="card">
+        <strong>DASHBOARD_AUTH_ENABLED</strong>
+        <select id="envDashboardAuthEnabled">
+          <option value="false">false</option>
+          <option value="true">true</option>
+        </select>
+      </div>
+      <div class="card">
+        <strong>DASHBOARD_PUBLIC_URL</strong>
+        <input id="envDashboardPublicUrl" placeholder="https://your-hostname:9898" />
+      </div>
+      <div class="card">
+        <strong>DISCORD_AUTH_CLIENT_ID</strong>
+        <input id="envDiscordAuthClientId" placeholder="123456789012345678" />
+      </div>
+      <div class="card">
+        <strong>DISCORD_AUTH_CLIENT_SECRET</strong>
+        <input id="envDiscordAuthClientSecret" type="password" placeholder="Discord OAuth client secret" autocomplete="off" />
+      </div>
+      <div class="card">
+        <strong>DASHBOARD_MANAGED_GUILD_IDS</strong>
+        <input id="envDashboardManagedGuildIds" placeholder="111111111111111111,222222222222222222" />
+      </div>
+      <div class="card">
+        <strong>DASHBOARD_AUTH_SESSION_HOURS</strong>
+        <input id="envDashboardAuthSessionHours" type="number" min="1" max="168" placeholder="12" />
+      </div>
+    </div>
     <div id="envMeta" class="muted"></div>
     <button id="saveEnv">Save Environment</button>
 
@@ -213,6 +250,16 @@
   </div>
 </div>
 
+<div id="authGate" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="authGateTitle">
+  <div class="modal-panel">
+    <h3 id="authGateTitle">Dashboard Login Required</h3>
+    <p id="authGateBody" class="muted">Authenticate with Discord to access the admin dashboard.</p>
+    <div class="row action-row">
+      <button id="authLoginBtn" class="success" type="button">Continue With Discord</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const state = {
   home: null,
@@ -232,8 +279,12 @@ const state = {
   updateProgressTimer: null,
   postUpdateReloadTimer: null,
   confirmAction: null,
+  auth: null,
+  activeGuildId: '',
+  managedGuildIds: [],
 };
 const TAB_STORAGE_KEY = 'manga_tracker_dashboard_active_tab';
+const GUILD_STORAGE_KEY = 'manga_tracker_dashboard_active_guild';
 
 function setStatus(message, ok = true) {
   const el = document.getElementById('statusLine');
@@ -260,10 +311,22 @@ async function api(path, options = {}) {
       const payload = await response.json();
       message = payload.error || message;
     } catch {}
-    throw new Error(message);
+    if (response.status === 401) {
+      showAuthGate('Session expired or not authenticated. Continue with Discord to access the dashboard.');
+    }
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
   }
 
   return response.json();
+}
+
+function withGuildPath(path) {
+  const guildId = String(state.activeGuildId || '').trim();
+  if (!guildId) throw new Error('Select an active guild first.');
+  const delimiter = path.includes('?') ? '&' : '?';
+  return path + delimiter + 'guildId=' + encodeURIComponent(guildId);
 }
 
 function switchTab(tabKey) {
@@ -323,7 +386,7 @@ function renderHome() {
   openBtn.disabled = !hasUrl;
 
   document.getElementById('homeMeta').textContent =
-    'Uptime: ' + state.home.uptimeHuman + ' • Memory RSS: ' + state.home.memoryRssMb + ' MB';
+    'Guild: ' + (state.activeGuildId || 'n/a') + ' • Uptime: ' + state.home.uptimeHuman + ' • Memory RSS: ' + state.home.memoryRssMb + ' MB';
 }
 
 function renderUsers() {
@@ -343,7 +406,7 @@ function renderUsers() {
     row.className = 'user-item' + (state.selectedUserId === user.userId ? ' active' : '');
     row.innerHTML =
       '<div><strong>' + user.userId + '</strong> <span class="badge">' + user.trackedCount + ' tracked</span></div>' +
-      '<small>' + user.preferredSource + ' • every ' + user.autoCheckIntervalHours + 'h</small>';
+      '<small>' + user.preferredSource + ' • every ' + user.autoCheckIntervalHours + 'h' + (user.isLegacy ? ' • legacy fallback' : '') + '</small>';
     row.addEventListener('click', () => selectUser(user.userId));
     list.appendChild(row);
   }
@@ -389,9 +452,19 @@ function renderTracked() {
     removeBtn.textContent = 'Remove';
     removeBtn.addEventListener('click', async () => {
       try {
-        await api('/api/users/' + state.selectedUserId + '/tracked?source=' + encodeURIComponent(entry.source) + '&mangaId=' + encodeURIComponent(entry.mangaId), {
+        await api(
+          withGuildPath(
+            '/api/users/' +
+              state.selectedUserId +
+              '/tracked?source=' +
+              encodeURIComponent(entry.source) +
+              '&mangaId=' +
+              encodeURIComponent(entry.mangaId)
+          ),
+          {
           method: 'DELETE',
-        });
+          }
+        );
         setStatus('Removed tracked manga.', true);
         await selectUser(state.selectedUserId);
         await refreshAll();
@@ -520,7 +593,53 @@ function renderEnvSettings() {
   document.getElementById('envDiscordOauthScopes').value = values.DISCORD_OAUTH_SCOPES || '';
   document.getElementById('envDiscordOauthPermissions').value = values.DISCORD_OAUTH_PERMISSIONS || '';
   document.getElementById('envDiscordOauthGuildId').value = values.DISCORD_OAUTH_GUILD_ID || '';
+  document.getElementById('envDashboardAuthEnabled').value = values.DASHBOARD_AUTH_ENABLED || 'false';
+  document.getElementById('envDashboardPublicUrl').value = values.DASHBOARD_PUBLIC_URL || '';
+  document.getElementById('envDiscordAuthClientId').value = values.DISCORD_AUTH_CLIENT_ID || '';
+  document.getElementById('envDiscordAuthClientSecret').value = values.DISCORD_AUTH_CLIENT_SECRET || '';
+  document.getElementById('envDashboardManagedGuildIds').value = values.DASHBOARD_MANAGED_GUILD_IDS || '';
+  document.getElementById('envDashboardAuthSessionHours').value = values.DASHBOARD_AUTH_SESSION_HOURS || '12';
   document.getElementById('envMeta').textContent = 'Env file: ' + (state.envConfig.envFilePath || 'unknown');
+}
+
+function renderGuildSelector() {
+  const select = document.getElementById('activeGuildSelect');
+  if (!select) return;
+  select.innerHTML = '';
+
+  const guildIds = Array.isArray(state.managedGuildIds) ? state.managedGuildIds : [];
+  if (guildIds.length === 0) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'No guilds configured';
+    select.appendChild(option);
+    select.disabled = true;
+    state.activeGuildId = '';
+    return;
+  }
+
+  select.disabled = false;
+  for (const guildId of guildIds) {
+    const option = document.createElement('option');
+    option.value = guildId;
+    option.textContent = guildId;
+    select.appendChild(option);
+  }
+
+  if (!guildIds.includes(state.activeGuildId)) {
+    try {
+      const saved = localStorage.getItem(GUILD_STORAGE_KEY);
+      if (saved && guildIds.includes(saved)) {
+        state.activeGuildId = saved;
+      } else {
+        state.activeGuildId = guildIds[0];
+      }
+    } catch {
+      state.activeGuildId = guildIds[0];
+    }
+  }
+
+  select.value = state.activeGuildId;
 }
 
 function renderBotRuntime() {
@@ -655,13 +774,31 @@ function renderUpdater() {
   out.textContent = lines.join('\n');
 }
 
+function showAuthGate(message) {
+  const modal = document.getElementById('authGate');
+  const body = document.getElementById('authGateBody');
+  body.textContent = message || 'Authenticate with Discord to access the admin dashboard.';
+  modal.classList.remove('hidden');
+}
+
+function hideAuthGate() {
+  const modal = document.getElementById('authGate');
+  modal.classList.add('hidden');
+}
+
+async function refreshAuthState() {
+  state.auth = await api('/api/admin/auth/me');
+  state.managedGuildIds = Array.isArray(state.auth.allowedGuildIds) ? state.auth.allowedGuildIds : [];
+  renderGuildSelector();
+}
+
 async function refreshHome() {
-  state.home = await api('/api/admin/home');
+  state.home = await api(withGuildPath('/api/admin/home'));
   renderHome();
 }
 
 async function refreshUsers() {
-  const payload = await api('/api/users');
+  const payload = await api(withGuildPath('/api/users'));
   state.users = payload.users;
   if (state.selectedUserId && !state.users.some((user) => user.userId === state.selectedUserId)) {
     state.selectedUserId = null;
@@ -727,12 +864,18 @@ async function refreshBotRuntime() {
 
 async function selectUser(userId) {
   state.selectedUserId = userId;
-  const payload = await api('/api/users/' + userId);
+  const payload = await api(withGuildPath('/api/users/' + userId));
   state.selectedUserData = payload.user;
 
   document.getElementById('selectedUserTitle').textContent = 'User ' + userId;
   document.getElementById('userMeta').textContent =
-    'Tracked: ' + payload.user.tracked.length + ' • Last auto-check: ' + (payload.user.lastAutoCheckAt || 'never');
+    'Guild: ' +
+    state.activeGuildId +
+    ' • Tracked: ' +
+    payload.user.tracked.length +
+    ' • Last auto-check: ' +
+    (payload.user.lastAutoCheckAt || 'never') +
+    (payload.user.isLegacy ? ' • legacy fallback' : '');
 
   document.getElementById('preferredSource').value = payload.user.preferredSource;
   document.getElementById('autoHours').value = payload.user.autoCheckIntervalHours;
@@ -745,7 +888,7 @@ async function selectUser(userId) {
 async function saveSettings() {
   if (!state.selectedUserId) return setStatus('Select a user first.', false);
   try {
-    await api('/api/users/' + state.selectedUserId + '/settings', {
+    await api(withGuildPath('/api/users/' + state.selectedUserId + '/settings'), {
       method: 'PUT',
       body: JSON.stringify({
         preferredSource: document.getElementById('preferredSource').value,
@@ -772,7 +915,7 @@ async function deleteUser() {
   if (!confirmed) return;
 
   try {
-    await api('/api/users/' + state.selectedUserId, { method: 'DELETE' });
+    await api(withGuildPath('/api/users/' + state.selectedUserId), { method: 'DELETE' });
     setStatus('User deleted.', true);
     state.selectedUserId = null;
     state.selectedUserData = null;
@@ -793,7 +936,7 @@ async function addTracked() {
   if (!input) return setStatus('Provide manga input.', false);
 
   try {
-    const payload = await api('/api/users/' + state.selectedUserId + '/tracked', {
+    const payload = await api(withGuildPath('/api/users/' + state.selectedUserId + '/tracked'), {
       method: 'POST',
       body: JSON.stringify({
         input,
@@ -847,7 +990,9 @@ async function saveSources() {
     populateSourceOptions();
     renderSourcesSettings();
     setStatus('Sources updated.', true);
-    await refreshHome();
+    if (state.activeGuildId) {
+      await refreshHome();
+    }
   } catch (error) {
     setStatus(error.message, false);
   }
@@ -867,12 +1012,21 @@ async function saveEnvConfig() {
           DISCORD_OAUTH_SCOPES: document.getElementById('envDiscordOauthScopes').value,
           DISCORD_OAUTH_PERMISSIONS: document.getElementById('envDiscordOauthPermissions').value,
           DISCORD_OAUTH_GUILD_ID: document.getElementById('envDiscordOauthGuildId').value,
+          DASHBOARD_AUTH_ENABLED: document.getElementById('envDashboardAuthEnabled').value,
+          DASHBOARD_PUBLIC_URL: document.getElementById('envDashboardPublicUrl').value,
+          DISCORD_AUTH_CLIENT_ID: document.getElementById('envDiscordAuthClientId').value,
+          DISCORD_AUTH_CLIENT_SECRET: document.getElementById('envDiscordAuthClientSecret').value,
+          DASHBOARD_MANAGED_GUILD_IDS: document.getElementById('envDashboardManagedGuildIds').value,
+          DASHBOARD_AUTH_SESSION_HOURS: document.getElementById('envDashboardAuthSessionHours').value,
         },
       }),
     });
     renderEnvSettings();
+    await refreshAuthState();
     await refreshBotRuntime();
-    await refreshHome();
+    if (state.activeGuildId) {
+      await refreshHome();
+    }
     setStatus('Environment saved.', true);
   } catch (error) {
     setStatus(error.message, false);
@@ -883,11 +1037,15 @@ async function runBotAction(action) {
   try {
     state.botRuntime = await api('/api/admin/bot/' + action, { method: 'POST' });
     renderBotRuntime();
-    await refreshHome();
+    if (state.activeGuildId) {
+      await refreshHome();
+    }
     setStatus('Bot ' + action + ' completed.', true);
   } catch (error) {
     await refreshBotRuntime();
-    await refreshHome();
+    if (state.activeGuildId) {
+      await refreshHome();
+    }
     setStatus(error.message, false);
   }
 }
@@ -1057,8 +1215,12 @@ async function applyUpdate() {
 }
 
 async function refreshAll() {
+  await refreshAuthState();
   await refreshAdapters();
-  await Promise.all([refreshHome(), refreshUsers(), refreshSources(), refreshAbout(), refreshUpdater(), refreshEnvConfig(), refreshBotRuntime()]);
+  await Promise.all([refreshSources(), refreshAbout(), refreshUpdater(), refreshEnvConfig(), refreshBotRuntime()]);
+  if (state.activeGuildId) {
+    await Promise.all([refreshHome(), refreshUsers()]);
+  }
 }
 
 document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -1067,6 +1229,10 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
 
 document.getElementById('refreshUsers').addEventListener('click', async () => {
   try {
+    if (!state.activeGuildId) {
+      setStatus('No active guild selected.', false);
+      return;
+    }
     await refreshUsers();
     await refreshHome();
     setStatus('Users refreshed.', true);
@@ -1140,6 +1306,37 @@ document.getElementById('releaseMode').addEventListener('change', () => {
   state.updaterAutoChecked = false;
   renderUpdater();
 });
+document.getElementById('activeGuildSelect').addEventListener('change', async (event) => {
+  state.activeGuildId = String(event.target.value || '').trim();
+  try {
+    localStorage.setItem(GUILD_STORAGE_KEY, state.activeGuildId);
+  } catch {}
+  state.selectedUserId = null;
+  state.selectedUserData = null;
+  setUserDetailsVisible(false);
+  document.getElementById('selectedUserTitle').textContent = 'Manage user';
+  document.getElementById('userMeta').textContent = '';
+  document.getElementById('trackedList').innerHTML = '';
+  if (!state.activeGuildId) return;
+  try {
+    await Promise.all([refreshHome(), refreshUsers()]);
+    setStatus('Active guild updated.', true);
+  } catch (error) {
+    setStatus(error.message, false);
+  }
+});
+document.getElementById('authLoginBtn').addEventListener('click', () => {
+  window.location.href = '/auth/discord/login';
+});
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  try {
+    await api('/auth/logout', { method: 'POST' });
+    showAuthGate('You are logged out. Authenticate with Discord to continue.');
+    setStatus('Logged out.', true);
+  } catch (error) {
+    setStatus(error.message, false);
+  }
+});
 
 (async () => {
   try {
@@ -1153,6 +1350,13 @@ document.getElementById('releaseMode').addEventListener('change', () => {
     } catch {
       switchTab('home');
     }
+    await refreshAuthState();
+    if (!state.auth.authenticated) {
+      showAuthGate(state.auth.reason || 'Authenticate with Discord to access the admin dashboard.');
+      setStatus(state.auth.reason || 'Login required.', false);
+      return;
+    }
+    hideAuthGate();
     await refreshAll();
     setStatus('Admin dashboard ready.', true);
   } catch (error) {

@@ -148,6 +148,27 @@ a { color: #9acfff; }
   background: rgba(26, 56, 87, 0.6);
 }
 
+.status-actions {
+  margin: 0;
+  align-items: flex-end;
+}
+
+.status-actions label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.status-actions select {
+  margin-bottom: 0;
+  min-width: 220px;
+}
+
+#logoutBtn {
+  width: auto;
+  min-width: 110px;
+}
+
 .tab-panel { padding: 16px; }
 
 .section-head {

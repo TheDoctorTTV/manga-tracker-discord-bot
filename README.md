@@ -72,6 +72,12 @@ npm -v
    DISCORD_OAUTH_SCOPES=bot applications.commands
    DISCORD_OAUTH_PERMISSIONS=0
    DISCORD_OAUTH_GUILD_ID=
+   DASHBOARD_AUTH_ENABLED=false
+   DASHBOARD_PUBLIC_URL=
+   DISCORD_AUTH_CLIENT_ID=
+   DISCORD_AUTH_CLIENT_SECRET=
+   DASHBOARD_MANAGED_GUILD_IDS=
+   DASHBOARD_AUTH_SESSION_HOURS=12
    ```
 4. Install dependencies:
    ```bash
@@ -115,6 +121,19 @@ Invite behavior:
 - `OAUTH_URL` is empty and `DISCORD_CLIENT_ID` is valid: URL is generated automatically.
 - `OAUTH_URL` is empty and `DISCORD_CLIENT_ID` is missing/invalid: invite URL is unavailable and dashboard shows why.
 
+### Discord Intents and OAuth scopes
+
+Gateway intents used by this bot:
+- `Guilds`
+- `Direct Messages`
+
+Privileged gateway intents currently required:
+- None (`Message Content`, `Server Members`, and `Presence` are not required).
+
+OAuth scopes used:
+- Bot invite URL: `bot applications.commands`
+- Dashboard login OAuth: `identify guilds`
+
 ### Quick local run (manual)
 
 ```bash
@@ -126,9 +145,30 @@ Dashboard URL (default bind):
 http://<server-ip-or-domain>:9898
 ```
 
-The dashboard currently runs without built-in auth while admin features are being completed. Keep it behind your own network controls.
+Dashboard access is now protected by Discord OAuth when `DASHBOARD_AUTH_ENABLED=true`.
+Until auth is fully configured and enabled, dashboard access is limited to localhost bootstrap setup only.
 It includes admin tabs for `Home`, `Users`, `Settings`, and `About`.
-Because the dashboard can edit environment values (including token updates), do not expose it publicly until auth (such as Discord OAuth) is enabled.
+
+### Dashboard Discord OAuth Setup
+
+1. In Discord Developer Portal, open your app and add OAuth redirect URI:
+   - `https://your-domain-or-ip:9898/auth/discord/callback`
+   - (or `http://...` for local/non-TLS testing)
+2. In dashboard **Settings -> Dashboard Auth**, set:
+   - `DASHBOARD_PUBLIC_URL` (base dashboard URL)
+   - `DISCORD_AUTH_CLIENT_ID`
+   - `DISCORD_AUTH_CLIENT_SECRET`
+   - `DASHBOARD_MANAGED_GUILD_IDS` (comma-separated guild IDs you manage)
+   - `DASHBOARD_AUTH_SESSION_HOURS` (default `12`)
+3. Set `DASHBOARD_AUTH_ENABLED=true` and save environment.
+4. Login via Discord. Access is granted only if your Discord account has `ADMINISTRATOR` in at least one managed guild.
+
+### Guild-scoped dashboard behavior
+
+- Dashboard user operations are scoped by **Active Guild**.
+- User settings and tracked manga are stored per `(guildId, userId)`.
+- Existing legacy global user files remain readable as fallback in guild views and are labeled as legacy.
+- New edits/writes from dashboard are always saved to guild-scoped records.
 
 ## Run as a systemd service (recommended)
 

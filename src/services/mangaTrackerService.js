@@ -16,6 +16,8 @@ const {
 const { loadMangaSourcesConfig } = require('../sources/sourceConfig');
 const { createDefaultSourceAdapterRegistry } = require('../sources/adapterRegistry');
 
+const LEGACY_GLOBAL_SCOPE = '__global__';
+
 class MangaTrackerService {
   constructor({ mangaDir = MANGA_DIR, mangaSourcesFile }) {
     this.mangaDir = mangaDir;
@@ -157,7 +159,24 @@ class MangaTrackerService {
     return username.replace(/[^a-zA-Z0-9_-]/g, '_');
   }
 
-  getUserFilePath(userId) {
+  normalizeGuildId(guildId) {
+    const normalized = String(guildId || '').trim();
+    if (!normalized) return null;
+    if (!/^\d+$/.test(normalized)) {
+      throw new Error('guildId must be a numeric Discord guild ID');
+    }
+    return normalized;
+  }
+
+  getGuildUserFilePath(guildId, userId) {
+    const resolvedGuildId = this.normalizeGuildId(guildId);
+    return path.join(this.mangaDir, `${resolvedGuildId}__${userId}.json`);
+  }
+
+  getUserFilePath(userId, scope = LEGACY_GLOBAL_SCOPE) {
+    if (scope && scope !== LEGACY_GLOBAL_SCOPE) {
+      return this.getGuildUserFilePath(scope, userId);
+    }
     return path.join(this.mangaDir, `${userId}.json`);
   }
 
@@ -167,7 +186,7 @@ class MangaTrackerService {
   }
 
   migrateLegacyUsernameFile(userId, username) {
-    const userFilePath = this.getUserFilePath(userId);
+    const userFilePath = this.getUserFilePath(userId, LEGACY_GLOBAL_SCOPE);
     const legacyFilePath = this.getLegacyUserFilePath(username);
 
     if (!fs.existsSync(legacyFilePath) || fs.existsSync(userFilePath)) {
@@ -233,6 +252,7 @@ class MangaTrackerService {
         lastAutoCheckAt: null,
         preferredSource,
         tracked,
+        isLegacy: false,
       };
     }
 
@@ -247,7 +267,7 @@ class MangaTrackerService {
           ? rawData.lastAutoCheckAt
           : null;
 
-      return { version: 3, autoCheckIntervalHours, lastAutoCheckAt, preferredSource, tracked };
+      return { version: 3, autoCheckIntervalHours, lastAutoCheckAt, preferredSource, tracked, isLegacy: false };
     }
 
     return {
@@ -256,11 +276,12 @@ class MangaTrackerService {
       lastAutoCheckAt: null,
       preferredSource,
       tracked: [],
+      isLegacy: false,
     };
   }
 
   getUserData(userId) {
-    const filePath = this.getUserFilePath(userId);
+    const filePath = this.getUserFilePath(userId, LEGACY_GLOBAL_SCOPE);
     if (!fs.existsSync(filePath)) {
       return this.normalizeUserData(null);
     }
@@ -275,8 +296,52 @@ class MangaTrackerService {
   }
 
   saveUserData(userId, data) {
-    const filePath = this.getUserFilePath(userId);
+    const filePath = this.getUserFilePath(userId, LEGACY_GLOBAL_SCOPE);
     const normalized = this.normalizeUserData(data);
+    delete normalized.isLegacy;
+    fs.writeFileSync(filePath, JSON.stringify(normalized, null, 2));
+  }
+
+  getGuildUserData(guildId, userId, options = {}) {
+    const resolvedGuildId = this.normalizeGuildId(guildId);
+    const guildFilePath = this.getUserFilePath(userId, resolvedGuildId);
+    const allowLegacyFallback = options.allowLegacyFallback !== false;
+
+    if (fs.existsSync(guildFilePath)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(guildFilePath, 'utf8'));
+        const normalized = this.normalizeUserData(parsed);
+        normalized.isLegacy = false;
+        return normalized;
+      } catch (error) {
+        console.error(`Error parsing guild user data for ${resolvedGuildId}:${userId}:`, error.message);
+      }
+    }
+
+    if (allowLegacyFallback) {
+      const legacyPath = this.getUserFilePath(userId, LEGACY_GLOBAL_SCOPE);
+      if (fs.existsSync(legacyPath)) {
+        try {
+          const parsed = JSON.parse(fs.readFileSync(legacyPath, 'utf8'));
+          const normalized = this.normalizeUserData(parsed);
+          normalized.isLegacy = true;
+          return normalized;
+        } catch (error) {
+          console.error(`Error parsing legacy user data for ${userId}:`, error.message);
+        }
+      }
+    }
+
+    const empty = this.normalizeUserData(null);
+    empty.isLegacy = false;
+    return empty;
+  }
+
+  saveGuildUserData(guildId, userId, data) {
+    const resolvedGuildId = this.normalizeGuildId(guildId);
+    const filePath = this.getUserFilePath(userId, resolvedGuildId);
+    const normalized = this.normalizeUserData(data);
+    delete normalized.isLegacy;
     fs.writeFileSync(filePath, JSON.stringify(normalized, null, 2));
   }
 
@@ -300,6 +365,49 @@ class MangaTrackerService {
     return users.sort((a, b) => a.userId.localeCompare(b.userId));
   }
 
+  listGuildUsers(guildId, options = {}) {
+    const resolvedGuildId = this.normalizeGuildId(guildId);
+    const includeLegacyFallback = options.includeLegacyFallback !== false;
+    const files = fs.readdirSync(this.mangaDir).filter((name) => name.endsWith('.json'));
+    const users = new Map();
+
+    for (const file of files) {
+      const scopedMatch = file.match(/^(\d+)__(\d+)\.json$/);
+      if (!scopedMatch) continue;
+      if (scopedMatch[1] !== resolvedGuildId) continue;
+      const userId = scopedMatch[2];
+      const data = this.getGuildUserData(resolvedGuildId, userId, { allowLegacyFallback: false });
+      users.set(userId, {
+        userId,
+        preferredSource: this.getPreferredSource(data),
+        trackedCount: data.tracked.length,
+        autoCheckIntervalHours: data.autoCheckIntervalHours,
+        lastAutoCheckAt: data.lastAutoCheckAt,
+        isLegacy: false,
+      });
+    }
+
+    if (includeLegacyFallback) {
+      for (const file of files) {
+        const legacyMatch = file.match(/^(\d+)\.json$/);
+        if (!legacyMatch) continue;
+        const userId = legacyMatch[1];
+        if (users.has(userId)) continue;
+        const data = this.getGuildUserData(resolvedGuildId, userId, { allowLegacyFallback: true });
+        users.set(userId, {
+          userId,
+          preferredSource: this.getPreferredSource(data),
+          trackedCount: data.tracked.length,
+          autoCheckIntervalHours: data.autoCheckIntervalHours,
+          lastAutoCheckAt: data.lastAutoCheckAt,
+          isLegacy: Boolean(data.isLegacy),
+        });
+      }
+    }
+
+    return Array.from(users.values()).sort((a, b) => a.userId.localeCompare(b.userId));
+  }
+
   getAdminSummary() {
     const users = this.listUsers();
     const totalTracked = users.reduce((sum, user) => sum + user.trackedCount, 0);
@@ -312,8 +420,28 @@ class MangaTrackerService {
     };
   }
 
+  getAdminSummaryForGuild(guildId) {
+    const users = this.listGuildUsers(guildId);
+    const totalTracked = users.reduce((sum, user) => sum + user.trackedCount, 0);
+    return {
+      users: users.length,
+      totalTracked,
+      defaultSource: this.mangaSources.defaultSource,
+      sources: this.mangaSources.sources.length,
+      enabledSources: this.enabledSources.length,
+    };
+  }
+
   deleteUser(userId) {
     const filePath = this.getUserFilePath(userId);
+    if (!fs.existsSync(filePath)) return false;
+    fs.unlinkSync(filePath);
+    return true;
+  }
+
+  deleteGuildUser(guildId, userId) {
+    const resolvedGuildId = this.normalizeGuildId(guildId);
+    const filePath = this.getUserFilePath(userId, resolvedGuildId);
     if (!fs.existsSync(filePath)) return false;
     fs.unlinkSync(filePath);
     return true;
@@ -700,6 +828,83 @@ class MangaTrackerService {
     return updates;
   }
 
+  async buildGuildUserUpdates(guildId, userId, options = {}) {
+    const resolvedGuildId = this.normalizeGuildId(guildId);
+    const userData = this.getGuildUserData(resolvedGuildId, userId, { allowLegacyFallback: true });
+    const updates = [];
+    let changed = false;
+    const sourceFilter = Array.isArray(options.sources) ? new Set(options.sources) : null;
+
+    for (const entry of userData.tracked) {
+      if (sourceFilter && !sourceFilter.has(entry.source)) continue;
+
+      try {
+        const mangaTitle = await this.resolveTrackedMangaTitle(entry);
+        const snapshot = await this.fetchChapterSnapshotForEntry(entry);
+        if (!snapshot) continue;
+
+        const oldCount = Number.isInteger(entry.lastSeenChapterCount) ? entry.lastSeenChapterCount : null;
+        const newCount = Number.isInteger(snapshot.total) ? snapshot.total : null;
+        const oldChapterRaw = entry.lastSeenChapterNumber;
+        const newChapterRaw = typeof snapshot.chapter === 'string' ? snapshot.chapter : null;
+        const oldChapterNumeric = this.parseChapterNumber(oldChapterRaw);
+        const newChapterNumeric = this.parseChapterNumber(newChapterRaw);
+
+        if (!entry.lastNotifiedChapterId && oldCount === null && oldChapterRaw === null) {
+          entry.lastNotifiedChapterId = snapshot.id;
+          entry.lastSeenChapterNumber = newChapterRaw;
+          entry.lastSeenChapterCount = newCount;
+          changed = true;
+          continue;
+        }
+
+        const hasMoreChapters = oldCount !== null && newCount !== null && newCount > oldCount;
+        const chapterNumberIncreased =
+          oldChapterNumeric !== null && newChapterNumeric !== null && newChapterNumeric > oldChapterNumeric;
+        const chapterIdChanged = entry.lastNotifiedChapterId && entry.lastNotifiedChapterId !== snapshot.id;
+        const chapterLabelChanged = oldChapterRaw !== newChapterRaw;
+
+        const hasNewContent =
+          hasMoreChapters ||
+          chapterNumberIncreased ||
+          (chapterIdChanged && chapterLabelChanged) ||
+          (chapterIdChanged && oldChapterRaw === null && newChapterRaw === null);
+
+        if (hasNewContent) {
+          updates.push({
+            source: entry.source,
+            mangaId: entry.mangaId,
+            title: mangaTitle,
+            chapter: snapshot.chapter,
+            chapterTitle: snapshot.title,
+            link: snapshot.link,
+            readableAt: snapshot.readableAt,
+            latestChapterId: snapshot.id,
+          });
+        }
+
+        if (
+          entry.lastNotifiedChapterId !== snapshot.id ||
+          entry.lastSeenChapterNumber !== newChapterRaw ||
+          entry.lastSeenChapterCount !== newCount
+        ) {
+          entry.lastNotifiedChapterId = snapshot.id;
+          entry.lastSeenChapterNumber = newChapterRaw;
+          entry.lastSeenChapterCount = newCount;
+          changed = true;
+        }
+      } catch (error) {
+        console.error(`Error fetching updates for ${entry.source}:${entry.mangaId}:`, error.message);
+      }
+    }
+
+    if (changed) {
+      this.saveGuildUserData(resolvedGuildId, userId, userData);
+    }
+
+    return updates;
+  }
+
   async addTrackedTarget(userId, target) {
     const userData = this.getUserData(userId);
     if (userData.tracked.some((entry) => this.isSameTrackedTarget(entry, target))) {
@@ -761,6 +966,17 @@ class MangaTrackerService {
 
     userData.tracked = userData.tracked.filter((entry) => !this.isSameTrackedTarget(entry, target));
     this.saveUserData(userId, userData);
+    return found;
+  }
+
+  removeTrackedByTargetForGuild(guildId, userId, target) {
+    const resolvedGuildId = this.normalizeGuildId(guildId);
+    const userData = this.getGuildUserData(resolvedGuildId, userId, { allowLegacyFallback: true });
+    const found = userData.tracked.find((entry) => this.isSameTrackedTarget(entry, target));
+    if (!found) return null;
+
+    userData.tracked = userData.tracked.filter((entry) => !this.isSameTrackedTarget(entry, target));
+    this.saveGuildUserData(resolvedGuildId, userId, userData);
     return found;
   }
 
@@ -895,6 +1111,112 @@ class MangaTrackerService {
     };
   }
 
+  async migrateTrackedEntriesToSourceForGuild(guildId, userId, selectedSource) {
+    const resolvedGuildId = this.normalizeGuildId(guildId);
+    const userData = this.getGuildUserData(resolvedGuildId, userId, { allowLegacyFallback: true });
+    const previousSource = this.getPreferredSource(userData);
+    const tracked = Array.isArray(userData.tracked) ? userData.tracked : [];
+    const otherEntriesCount = tracked.filter((entry) => entry.source !== selectedSource).length;
+
+    if (previousSource === selectedSource && otherEntriesCount === 0) {
+      return {
+        changed: false,
+        previousSource,
+        selectedSource,
+        migratedCount: 0,
+        failedCount: 0,
+        dedupedCount: 0,
+        totalConsidered: 0,
+      };
+    }
+
+    const keptEntries = [];
+    const existingTargetKeys = new Set(
+      tracked.filter((entry) => entry.source === selectedSource).map((entry) => this.getTrackedEntryKey(entry))
+    );
+
+    let changed = previousSource !== selectedSource;
+    let migratedCount = 0;
+    let failedCount = 0;
+    let dedupedCount = 0;
+    let totalConsidered = 0;
+
+    for (const entry of tracked) {
+      if (entry.source === selectedSource) {
+        keptEntries.push(entry);
+        continue;
+      }
+
+      totalConsidered += 1;
+      const title = await this.resolveTrackedMangaTitle(entry);
+      if (!title || title === 'Unknown Title') {
+        keptEntries.push(entry);
+        failedCount += 1;
+        continue;
+      }
+
+      let results = [];
+      try {
+        results = await this.searchMangaOnSource(selectedSource, title, 5);
+      } catch (error) {
+        console.error(`Error searching ${selectedSource} during migration for "${title}":`, error.message);
+      }
+
+      const match = this.pickBestSearchMatchByTitle(title, results);
+      if (!match || !match.mangaId) {
+        keptEntries.push(entry);
+        failedCount += 1;
+        continue;
+      }
+
+      const target = { source: selectedSource, mangaId: match.mangaId };
+      const targetKey = this.getTrackedEntryKey(target);
+      if (existingTargetKeys.has(targetKey)) {
+        dedupedCount += 1;
+        changed = true;
+        continue;
+      }
+
+      let latestChapterId = null;
+      let latestChapterNumber = null;
+      let latestChapterCount = null;
+      try {
+        const snapshot = await this.fetchChapterSnapshotForEntry(target);
+        latestChapterId = snapshot?.id || null;
+        latestChapterNumber = snapshot?.chapter || null;
+        latestChapterCount = Number.isInteger(snapshot?.total) ? snapshot.total : null;
+      } catch (error) {
+        console.error(`Unable to fetch baseline chapter for ${target.source}:${target.mangaId}:`, error.message);
+      }
+
+      keptEntries.push({
+        source: selectedSource,
+        mangaId: match.mangaId,
+        title: match.title || title,
+        lastNotifiedChapterId: latestChapterId,
+        lastSeenChapterNumber: latestChapterNumber,
+        lastSeenChapterCount: latestChapterCount,
+      });
+      existingTargetKeys.add(targetKey);
+      migratedCount += 1;
+      changed = true;
+    }
+
+    userData.preferredSource = selectedSource;
+    userData.tracked = keptEntries;
+    if (changed) this.saveGuildUserData(resolvedGuildId, userId, userData);
+
+    return {
+      changed,
+      previousSource,
+      selectedSource,
+      migratedCount,
+      failedCount,
+      dedupedCount,
+      totalConsidered,
+    };
+  }
+
   shouldRunAutoCheck(userData, nowMs) {
     if (!userData.tracked || userData.tracked.length === 0) {
       return false;
@@ -964,6 +1286,30 @@ class MangaTrackerService {
     return this.getUserData(userId);
   }
 
+  setGuildUserSettings(guildId, userId, settings) {
+    const resolvedGuildId = this.normalizeGuildId(guildId);
+    const userData = this.getGuildUserData(resolvedGuildId, userId, { allowLegacyFallback: true });
+
+    if (Object.prototype.hasOwnProperty.call(settings, 'preferredSource')) {
+      const preferredSource = String(settings.preferredSource || '').trim().toLowerCase();
+      if (!this.enabledSourceMap.has(preferredSource)) {
+        throw new Error('Invalid preferredSource');
+      }
+      userData.preferredSource = preferredSource;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(settings, 'autoCheckIntervalHours')) {
+      const value = Number.parseInt(settings.autoCheckIntervalHours, 10);
+      if (!Number.isInteger(value) || value < MIN_AUTO_CHECK_HOURS || value > MAX_AUTO_CHECK_HOURS) {
+        throw new Error(`autoCheckIntervalHours must be between ${MIN_AUTO_CHECK_HOURS} and ${MAX_AUTO_CHECK_HOURS}`);
+      }
+      userData.autoCheckIntervalHours = value;
+    }
+
+    this.saveGuildUserData(resolvedGuildId, userId, userData);
+    return this.getGuildUserData(resolvedGuildId, userId, { allowLegacyFallback: true });
+  }
+
   async addTrackedByInput(userId, input, sourceHint) {
     const userData = this.getUserData(userId);
     const preferredSource = this.getPreferredSource(userData);
@@ -976,6 +1322,56 @@ class MangaTrackerService {
 
     if (!target) return { status: 'not_found' };
     return this.addTrackedTarget(userId, target);
+  }
+
+  async addTrackedTargetForGuild(guildId, userId, target) {
+    const resolvedGuildId = this.normalizeGuildId(guildId);
+    const userData = this.getGuildUserData(resolvedGuildId, userId, { allowLegacyFallback: true });
+    if (userData.tracked.some((entry) => this.isSameTrackedTarget(entry, target))) {
+      return { status: 'already_tracked' };
+    }
+
+    const title = target.title || (await this.fetchMangaTitleForTarget(target));
+    if (!title) return { status: 'not_found' };
+
+    let latestChapterId = null;
+    let latestChapterNumber = null;
+    let latestChapterCount = null;
+
+    try {
+      const snapshot = await this.fetchChapterSnapshotForEntry({ source: target.source, mangaId: target.mangaId });
+      latestChapterId = snapshot?.id || null;
+      latestChapterNumber = snapshot?.chapter || null;
+      latestChapterCount = Number.isInteger(snapshot?.total) ? snapshot.total : null;
+    } catch (error) {
+      console.error(`Unable to fetch baseline chapter for ${target.source}:${target.mangaId}:`, error.message);
+    }
+
+    userData.tracked.push({
+      source: target.source,
+      mangaId: target.mangaId,
+      title,
+      lastNotifiedChapterId: latestChapterId,
+      lastSeenChapterNumber: latestChapterNumber,
+      lastSeenChapterCount: latestChapterCount,
+    });
+    this.saveGuildUserData(resolvedGuildId, userId, userData);
+    return { status: 'added', title, source: target.source };
+  }
+
+  async addTrackedByInputForGuild(guildId, userId, input, sourceHint) {
+    const resolvedGuildId = this.normalizeGuildId(guildId);
+    const userData = this.getGuildUserData(resolvedGuildId, userId, { allowLegacyFallback: true });
+    const preferredSource = this.getPreferredSource(userData);
+    const sourceToUse = this.enabledSourceMap.has(sourceHint) ? sourceHint : preferredSource;
+
+    let target = this.extractMangaTarget(input);
+    if (!target) {
+      target = await this.findMangaTargetOnSource(sourceToUse, input);
+    }
+
+    if (!target) return { status: 'not_found' };
+    return this.addTrackedTargetForGuild(resolvedGuildId, userId, target);
   }
 
   async downloadImportedJson(attachment) {

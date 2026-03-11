@@ -3,6 +3,7 @@ const path = require('path');
 const { isNumericString, resolveDiscordOAuthInvite } = require('./discordOAuthService');
 
 const REDACTED_TOKEN_PLACEHOLDER = '********';
+const REDACTED_SECRET_PLACEHOLDER = '********';
 const MANAGED_ENV_DEFAULTS = {
   DISCORD_TOKEN: '',
   DASHBOARD_PORT: '9898',
@@ -12,6 +13,12 @@ const MANAGED_ENV_DEFAULTS = {
   DISCORD_OAUTH_SCOPES: 'bot applications.commands',
   DISCORD_OAUTH_PERMISSIONS: '0',
   DISCORD_OAUTH_GUILD_ID: '',
+  DASHBOARD_AUTH_ENABLED: 'false',
+  DASHBOARD_PUBLIC_URL: '',
+  DISCORD_AUTH_CLIENT_ID: '',
+  DISCORD_AUTH_CLIENT_SECRET: '',
+  DASHBOARD_MANAGED_GUILD_IDS: '',
+  DASHBOARD_AUTH_SESSION_HOURS: '12',
 };
 
 const DEFAULT_ENV_FILE_PATH = path.resolve(process.cwd(), '.env');
@@ -76,20 +83,86 @@ function readManagedEnvValues() {
   return values;
 }
 
+function parseGuildIdList(value) {
+  const seen = new Set();
+  const ids = [];
+
+  for (const part of String(value || '').split(',')) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    if (!isNumericString(trimmed)) {
+      throw new Error('DASHBOARD_MANAGED_GUILD_IDS must be a comma-separated list of numeric guild IDs');
+    }
+    if (seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    ids.push(trimmed);
+  }
+
+  return ids;
+}
+
+function parseBooleanEnv(value, fallback = false) {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  if (!normalized) return fallback;
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
+function getDashboardAuthConfig(values) {
+  const sessionHoursRaw = String(values.DASHBOARD_AUTH_SESSION_HOURS || '12').trim();
+  const sessionHoursParsed = Number.parseInt(sessionHoursRaw || '12', 10);
+  const sessionHours = Number.isInteger(sessionHoursParsed) ? sessionHoursParsed : 12;
+  const managedGuildIds = parseGuildIdList(values.DASHBOARD_MANAGED_GUILD_IDS);
+  const enabled = parseBooleanEnv(values.DASHBOARD_AUTH_ENABLED, false);
+  const publicUrl = String(values.DASHBOARD_PUBLIC_URL || '').trim().replace(/\/+$/g, '');
+  const clientId = String(values.DISCORD_AUTH_CLIENT_ID || '').trim();
+  const clientSecret = String(values.DISCORD_AUTH_CLIENT_SECRET || '').trim();
+  const missing = [];
+
+  if (!publicUrl) missing.push('DASHBOARD_PUBLIC_URL');
+  if (!clientId) missing.push('DISCORD_AUTH_CLIENT_ID');
+  if (!clientSecret) missing.push('DISCORD_AUTH_CLIENT_SECRET');
+  if (managedGuildIds.length === 0) missing.push('DASHBOARD_MANAGED_GUILD_IDS');
+
+  return {
+    enabled,
+    configured: missing.length === 0,
+    publicUrl,
+    callbackUrl: publicUrl ? `${publicUrl}/auth/discord/callback` : '',
+    managedGuildIds,
+    sessionHours,
+    missing,
+  };
+}
+
 function getDashboardEnvConfig() {
   const values = readManagedEnvValues();
   const hasDiscordToken = Boolean(String(values.DISCORD_TOKEN || '').trim());
+  const hasDiscordAuthSecret = Boolean(String(values.DISCORD_AUTH_CLIENT_SECRET || '').trim());
   const oauthInvite = resolveDiscordOAuthInvite(values);
+  const dashboardAuth = getDashboardAuthConfig(values);
 
   return {
     envFilePath: ENV_FILE_PATH,
     restartRequired: true,
     oauthInvite,
+    dashboardAuth,
     values: {
       ...values,
       DISCORD_TOKEN: hasDiscordToken ? REDACTED_TOKEN_PLACEHOLDER : '',
+      DISCORD_AUTH_CLIENT_SECRET: hasDiscordAuthSecret ? REDACTED_SECRET_PLACEHOLDER : '',
     },
-    redactedFields: ['DISCORD_TOKEN'],
+    redactedFields: ['DISCORD_TOKEN', 'DISCORD_AUTH_CLIENT_SECRET'],
+  };
+}
+
+function getDashboardRuntimeConfig() {
+  const values = readManagedEnvValues();
+  return {
+    values,
+    oauthInvite: resolveDiscordOAuthInvite(values),
+    dashboardAuth: getDashboardAuthConfig(values),
   };
 }
 
@@ -104,7 +177,8 @@ function saveDashboardEnvConfig(nextValues) {
     const incomingRaw = Object.prototype.hasOwnProperty.call(incoming, key) ? incoming[key] : existingValue;
     const incomingValue = String(incomingRaw == null ? '' : incomingRaw).trim();
     const resolvedValue =
-      key === 'DISCORD_TOKEN' && incomingValue === REDACTED_TOKEN_PLACEHOLDER
+      (key === 'DISCORD_TOKEN' && incomingValue === REDACTED_TOKEN_PLACEHOLDER) ||
+      (key === 'DISCORD_AUTH_CLIENT_SECRET' && incomingValue === REDACTED_SECRET_PLACEHOLDER)
         ? String(existingValue || '').trim()
         : incomingValue;
 
@@ -125,6 +199,35 @@ function saveDashboardEnvConfig(nextValues) {
     }
     if (key === 'DISCORD_OAUTH_GUILD_ID' && resolvedValue && !isNumericString(resolvedValue)) {
       throw new Error('DISCORD_OAUTH_GUILD_ID must be empty or a numeric guild ID');
+    }
+    if (key === 'DASHBOARD_AUTH_ENABLED') {
+      const normalized = resolvedValue.toLowerCase();
+      if (resolvedValue && !['1', '0', 'true', 'false', 'yes', 'no', 'on', 'off'].includes(normalized)) {
+        throw new Error('DASHBOARD_AUTH_ENABLED must be true or false');
+      }
+    }
+    if (key === 'DASHBOARD_PUBLIC_URL' && resolvedValue) {
+      let parsed;
+      try {
+        parsed = new URL(resolvedValue);
+      } catch {
+        throw new Error('DASHBOARD_PUBLIC_URL must be a valid URL');
+      }
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        throw new Error('DASHBOARD_PUBLIC_URL must use http or https');
+      }
+    }
+    if (key === 'DISCORD_AUTH_CLIENT_ID' && resolvedValue && !isNumericString(resolvedValue)) {
+      throw new Error('DISCORD_AUTH_CLIENT_ID must be a numeric Discord application ID');
+    }
+    if (key === 'DASHBOARD_MANAGED_GUILD_IDS') {
+      parseGuildIdList(resolvedValue);
+    }
+    if (key === 'DASHBOARD_AUTH_SESSION_HOURS' && resolvedValue) {
+      const hours = Number.parseInt(resolvedValue, 10);
+      if (!Number.isInteger(hours) || hours < 1 || hours > 168) {
+        throw new Error('DASHBOARD_AUTH_SESSION_HOURS must be an integer between 1 and 168');
+      }
     }
 
     parsed.valuesByKey.set(key, resolvedValue);
@@ -153,7 +256,11 @@ function saveDashboardEnvConfig(nextValues) {
 module.exports = {
   ENV_FILE_PATH,
   REDACTED_TOKEN_PLACEHOLDER,
+  REDACTED_SECRET_PLACEHOLDER,
+  parseGuildIdList,
+  getDashboardAuthConfig,
   ensureEnvFile,
   getDashboardEnvConfig,
+  getDashboardRuntimeConfig,
   saveDashboardEnvConfig,
 };

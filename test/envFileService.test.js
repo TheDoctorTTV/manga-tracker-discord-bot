@@ -72,3 +72,37 @@ test('rejects malformed DISCORD_OAUTH_GUILD_ID', () => {
     /DISCORD_OAUTH_GUILD_ID/
   );
 });
+
+test('saves and reloads dashboard auth env keys', () => {
+  const { service } = loadEnvFileServiceWithTempFile();
+  service.saveDashboardEnvConfig({
+    DASHBOARD_AUTH_ENABLED: 'true',
+    DASHBOARD_PUBLIC_URL: 'https://example.com',
+    DISCORD_AUTH_CLIENT_ID: '123456789012345678',
+    DISCORD_AUTH_CLIENT_SECRET: 'super-secret',
+    DASHBOARD_MANAGED_GUILD_IDS: '111111111111111111, 222222222222222222,111111111111111111',
+    DASHBOARD_AUTH_SESSION_HOURS: '12',
+  });
+
+  const config = service.getDashboardEnvConfig();
+  assert.equal(config.values.DASHBOARD_AUTH_ENABLED, 'true');
+  assert.equal(config.values.DASHBOARD_PUBLIC_URL, 'https://example.com');
+  assert.equal(config.values.DISCORD_AUTH_CLIENT_ID, '123456789012345678');
+  assert.equal(config.values.DISCORD_AUTH_CLIENT_SECRET, '********');
+  assert.equal(config.values.DASHBOARD_MANAGED_GUILD_IDS, '111111111111111111, 222222222222222222,111111111111111111');
+  assert.equal(config.dashboardAuth.enabled, true);
+  assert.equal(config.dashboardAuth.configured, true);
+  assert.deepEqual(config.dashboardAuth.managedGuildIds, ['111111111111111111', '222222222222222222']);
+  assert.equal(config.dashboardAuth.callbackUrl, 'https://example.com/auth/discord/callback');
+});
+
+test('rejects malformed DASHBOARD_MANAGED_GUILD_IDS', () => {
+  const { service } = loadEnvFileServiceWithTempFile();
+  assert.throws(
+    () =>
+      service.saveDashboardEnvConfig({
+        DASHBOARD_MANAGED_GUILD_IDS: '123,not-a-guild',
+      }),
+    /DASHBOARD_MANAGED_GUILD_IDS/
+  );
+});
