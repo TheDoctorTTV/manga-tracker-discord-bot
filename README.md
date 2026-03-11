@@ -145,8 +145,8 @@ Dashboard URL (default bind):
 http://<server-ip-or-domain>:9898
 ```
 
-Dashboard access is now protected by Discord OAuth when `DASHBOARD_AUTH_ENABLED=true`.
-Until auth is fully configured and enabled, dashboard access is limited to localhost bootstrap setup only.
+On fresh install, the app opens full-screen onboarding at `/onboarding`.
+After onboarding is completed, dashboard auth is enabled automatically and users authenticate through `/login`.
 It includes admin tabs for `Home`, `Users`, `Settings`, and `About`.
 
 ### Dashboard Discord OAuth Setup
@@ -165,7 +165,7 @@ OAuth callback formula:
 
 Setup steps:
 
-1. In dashboard **Settings -> Dashboard Auth**, set:
+1. In onboarding Step 3 (Dashboard Auth), set:
    - `DASHBOARD_PUBLIC_URL` (base dashboard URL)
    - `DISCORD_AUTH_CLIENT_ID`
    - `DISCORD_AUTH_CLIENT_SECRET`
@@ -177,8 +177,9 @@ Setup steps:
    - Go to **OAuth2 -> Redirects**.
    - Add the exact callback URL.
    - Save changes.
-4. Set `DASHBOARD_AUTH_ENABLED=true` and save environment.
-5. Login via Discord. Access is granted only if your Discord account has `ADMINISTRATOR` in at least one managed guild.
+4. Save settings, then click **Confirm External Step** in onboarding.
+5. Complete onboarding. This marks setup complete and automatically sets `DASHBOARD_AUTH_ENABLED=true`.
+6. Login via Discord. Access is granted only if your Discord account has `ADMINISTRATOR` in at least one managed guild.
 
 Troubleshooting `redirect_uri_mismatch`:
 - Ensure the callback in Discord exactly matches computed callback URL (character-for-character).
@@ -234,9 +235,15 @@ curl -fsSL -o manga-tracker-linux.tar.gz https://github.com/TheDoctorTTV/manga-t
 To uninstall:
 ```bash
 sudo ./uninstall_systemd_service.sh
-# or full purge:
-sudo PURGE=1 ./uninstall_systemd_service.sh
+# non-interactive (automation):
+sudo FORCE=1 ./uninstall_systemd_service.sh
 ```
+
+The uninstall script shows a bold red warning, asks for `DELETE` confirmation, and removes:
+- systemd unit
+- install directory (`/opt/manga-tracker-discord-bot`)
+- env file (`/etc/manga-tracker-discord-bot.env`)
+- extracted `manga-tracker-linux` package folder (when detected)
 
 ### Start
 
