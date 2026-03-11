@@ -233,6 +233,7 @@ const state = {
   home: null,
   users: [],
   sources: null,
+  adapters: [],
   selectedUserId: null,
   selectedUserData: null,
   sourceDraft: null,
@@ -284,7 +285,7 @@ function renderHome() {
     ['Bot Status', state.home.botStatus],
     ['Users', String(state.home.users)],
     ['Manga Lists', String(state.home.totalTracked)],
-    ['Sources', String(state.home.sources)],
+    ['Sources (Enabled)', String(state.home.enabledSources)],
     ['Default Source', state.home.defaultSource],
     ['PID', String(state.home.pid)],
   ];
@@ -330,7 +331,8 @@ function populateSourceOptions() {
   preferred.innerHTML = '';
   addHint.innerHTML = '<option value="">Use preferred source</option>';
 
-  for (const source of state.sources.sources) {
+  const enabledSources = state.sources.sources.filter((source) => source.enabled !== false);
+  for (const source of enabledSources) {
     const option = document.createElement('option');
     option.value = source.key;
     option.textContent = source.displayName + ' (' + source.key + ')';
@@ -387,22 +389,32 @@ function renderSourcesSettings() {
 
   if (!state.sourceDraft || !Array.isArray(state.sourceDraft.sources)) return;
 
-  for (const source of state.sourceDraft.sources) {
+  const enabledSources = state.sourceDraft.sources.filter((source) => source.enabled !== false);
+  for (const source of enabledSources) {
     const option = document.createElement('option');
     option.value = source.key;
     option.textContent = source.displayName + ' (' + source.key + ')';
     defaultSelect.appendChild(option);
   }
 
-  if (state.sourceDraft.sources.length > 0) {
-    defaultSelect.value = state.sourceDraft.defaultSource || state.sourceDraft.sources[0].key;
+  if (enabledSources.length > 0) {
+    defaultSelect.value = state.sourceDraft.defaultSource || enabledSources[0].key;
   }
 
   state.sourceDraft.sources.forEach((source, index) => {
+    const adapterOptions = state.adapters
+      .map((adapterKey) => {
+        const selected = adapterKey === (source.adapter || source.key) ? ' selected' : '';
+        return '<option value="' + adapterKey + '"' + selected + '>' + adapterKey + '</option>';
+      })
+      .join('');
+
     const row = document.createElement('div');
     row.className = 'source-row';
     row.innerHTML =
       '<label>Key</label><input data-field="key" data-index="' + index + '" value="' + (source.key || '') + '" />' +
+      '<label>Adapter</label><select data-field="adapter" data-index="' + index + '">' + adapterOptions + '</select>' +
+      '<label>Enabled</label><input data-field="enabled" data-index="' + index + '" type="checkbox"' + (source.enabled === false ? '' : ' checked') + ' />' +
       '<label>Display Name</label><input data-field="displayName" data-index="' + index + '" value="' + (source.displayName || '') + '" />' +
       '<label>Title URL</label><input data-field="titleUrl" data-index="' + index + '" value="' + (source.titleUrl || '') + '" />' +
       '<label>Hosts (comma separated)</label><input data-field="hosts" data-index="' + index + '" value="' + (Array.isArray(source.hosts) ? source.hosts.join(', ') : '') + '" />';
@@ -412,10 +424,11 @@ function renderSourcesSettings() {
     removeBtn.textContent = 'Remove Source';
     removeBtn.addEventListener('click', () => {
       state.sourceDraft.sources.splice(index, 1);
-      if (state.sourceDraft.sources.length === 0) {
+      const remainingEnabled = state.sourceDraft.sources.filter((item) => item.enabled !== false);
+      if (remainingEnabled.length === 0) {
         state.sourceDraft.defaultSource = '';
-      } else if (!state.sourceDraft.sources.some((item) => item.key === state.sourceDraft.defaultSource)) {
-        state.sourceDraft.defaultSource = state.sourceDraft.sources[0].key;
+      } else if (!remainingEnabled.some((item) => item.key === state.sourceDraft.defaultSource)) {
+        state.sourceDraft.defaultSource = remainingEnabled[0].key;
       }
       renderSourcesSettings();
     });
@@ -424,11 +437,12 @@ function renderSourcesSettings() {
     list.appendChild(row);
   });
 
-  list.querySelectorAll('input[data-field]').forEach((input) => {
-    input.addEventListener('input', (event) => {
+  list.querySelectorAll('[data-field]').forEach((input) => {
+    const eventName = input.tagName === 'SELECT' ? 'change' : 'input';
+    input.addEventListener(eventName, (event) => {
       const idx = Number(event.target.dataset.index);
       const field = event.target.dataset.field;
-      const value = event.target.value;
+      const value = field === 'enabled' ? event.target.checked : event.target.value;
 
       if (!state.sourceDraft.sources[idx]) return;
 
@@ -439,6 +453,13 @@ function renderSourcesSettings() {
           .filter(Boolean);
       } else {
         state.sourceDraft.sources[idx][field] = value;
+      }
+
+      if (field === 'enabled') {
+        const enabled = state.sourceDraft.sources.filter((item) => item.enabled !== false);
+        if (enabled.length > 0 && !enabled.some((item) => item.key === state.sourceDraft.defaultSource)) {
+          state.sourceDraft.defaultSource = enabled[0].key;
+        }
       }
 
       if (field === 'key' && state.sourceDraft.defaultSource === '') {
@@ -523,6 +544,11 @@ async function refreshSources() {
   state.sourceDraft = JSON.parse(JSON.stringify(state.sources));
   populateSourceOptions();
   renderSourcesSettings();
+}
+
+async function refreshAdapters() {
+  const payload = await api('/api/admin/source-adapters');
+  state.adapters = Array.isArray(payload.adapters) ? payload.adapters : [];
 }
 
 async function refreshAbout() {
@@ -614,7 +640,14 @@ async function addTracked() {
 
 function addSourceDraft() {
   if (!state.sourceDraft || !Array.isArray(state.sourceDraft.sources)) return;
-  state.sourceDraft.sources.push({ key: '', displayName: '', hosts: [], titleUrl: '' });
+  state.sourceDraft.sources.push({
+    key: '',
+    adapter: state.adapters[0] || '',
+    enabled: true,
+    displayName: '',
+    hosts: [],
+    titleUrl: '',
+  });
   renderSourcesSettings();
 }
 
@@ -624,6 +657,8 @@ async function saveSources() {
       defaultSource: state.sourceDraft.defaultSource,
       sources: state.sourceDraft.sources.map((source) => ({
         key: (source.key || '').trim().toLowerCase(),
+        adapter: (source.adapter || source.key || '').trim().toLowerCase(),
+        enabled: source.enabled !== false,
         displayName: (source.displayName || '').trim(),
         hosts: Array.isArray(source.hosts)
           ? source.hosts.map((host) => String(host || '').trim().toLowerCase()).filter(Boolean)
@@ -675,6 +710,7 @@ async function applyUpdate() {
 }
 
 async function refreshAll() {
+  await refreshAdapters();
   await Promise.all([refreshHome(), refreshUsers(), refreshSources(), refreshAbout(), refreshUpdater()]);
 }
 
@@ -774,6 +810,7 @@ function startDashboardServer({ service, updater }) {
           users: summary.users,
           totalTracked: summary.totalTracked,
           sources: summary.sources,
+          enabledSources: summary.enabledSources,
           defaultSource: summary.defaultSource,
           pid: process.pid,
           uptimeHuman: formatUptime(process.uptime()),
@@ -858,6 +895,11 @@ function startDashboardServer({ service, updater }) {
 
       if (req.method === 'GET' && pathName === '/api/admin/sources') {
         sendJson(res, 200, service.getSources());
+        return;
+      }
+
+      if (req.method === 'GET' && pathName === '/api/admin/source-adapters') {
+        sendJson(res, 200, { adapters: service.getSourceAdapterCatalog() });
         return;
       }
 

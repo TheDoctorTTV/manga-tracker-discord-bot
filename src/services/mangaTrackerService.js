@@ -14,11 +14,14 @@ const {
   DEFAULT_AUTO_CHECK_HOURS,
 } = require('../config');
 const { loadMangaSourcesConfig } = require('../sources/sourceConfig');
+const { createDefaultSourceAdapterRegistry } = require('../sources/adapterRegistry');
 
 class MangaTrackerService {
   constructor({ mangaDir = MANGA_DIR, mangaSourcesFile }) {
     this.mangaDir = mangaDir;
     this.mangaSourcesFile = mangaSourcesFile;
+    this.sourceAdapterRegistry = createDefaultSourceAdapterRegistry();
+    this.userAgent = `MangaTrackerBot/${BOT_VERSION}`;
     this.applySourcesConfig(loadMangaSourcesConfig(this.mangaSourcesFile));
 
     if (!fs.existsSync(this.mangaDir)) {
@@ -29,6 +32,38 @@ class MangaTrackerService {
   applySourcesConfig(config) {
     this.mangaSources = config;
     this.mangaSourceMap = new Map(this.mangaSources.sources.map((source) => [source.key, source]));
+    this.enabledSources = this.mangaSources.sources.filter((source) => source.enabled !== false);
+    this.enabledSourceMap = new Map(this.enabledSources.map((source) => [source.key, source]));
+
+    if (!this.enabledSourceMap.has(this.mangaSources.defaultSource)) {
+      if (this.enabledSources.length > 0) {
+        this.mangaSources.defaultSource = this.enabledSources[0].key;
+      } else if (this.mangaSources.sources.length > 0) {
+        this.mangaSources.defaultSource = this.mangaSources.sources[0].key;
+      }
+    }
+  }
+
+  getSourceAdapter(sourceKey) {
+    const source = this.mangaSourceMap.get(sourceKey);
+    if (!source) return null;
+    return this.sourceAdapterRegistry.get(source.adapter || source.key);
+  }
+
+  getAdapterContext(source) {
+    return {
+      axios,
+      source,
+      userAgent: this.userAgent,
+      MANGADEX_API,
+      COMIX_API_BASE,
+      UUID_REGEX,
+      COMIX_ID_REGEX,
+    };
+  }
+
+  getSourceAdapterCatalog() {
+    return this.sourceAdapterRegistry.list();
   }
 
   reloadSourcesConfig() {
@@ -58,6 +93,14 @@ class MangaTrackerService {
       if (seenKeys.has(key)) throw new Error(`Duplicate source key: ${key}`);
       seenKeys.add(key);
 
+      const adapter =
+        typeof rawSource.adapter === 'string' && rawSource.adapter.trim()
+          ? rawSource.adapter.trim().toLowerCase()
+          : key;
+      if (!this.sourceAdapterRegistry.get(adapter)) {
+        throw new Error(`Source ${key} references unknown adapter: ${adapter}`);
+      }
+
       const hosts = Array.isArray(rawSource.hosts)
         ? rawSource.hosts
             .map((host) => (typeof host === 'string' ? host.trim().toLowerCase() : ''))
@@ -67,6 +110,8 @@ class MangaTrackerService {
 
       normalizedSources.push({
         key,
+        adapter,
+        enabled: rawSource.enabled !== false,
         displayName:
           typeof rawSource.displayName === 'string' && rawSource.displayName.trim()
             ? rawSource.displayName.trim()
@@ -79,9 +124,16 @@ class MangaTrackerService {
       });
     }
 
+    const enabledSources = normalizedSources.filter((source) => source.enabled);
+    if (enabledSources.length === 0) {
+      throw new Error('At least one source must be enabled');
+    }
+
     const requestedDefault =
-      typeof payload.defaultSource === 'string' ? payload.defaultSource.trim().toLowerCase() : normalizedSources[0].key;
-    const defaultSource = seenKeys.has(requestedDefault) ? requestedDefault : normalizedSources[0].key;
+      typeof payload.defaultSource === 'string' ? payload.defaultSource.trim().toLowerCase() : enabledSources[0].key;
+    const defaultSource = enabledSources.some((source) => source.key === requestedDefault)
+      ? requestedDefault
+      : enabledSources[0].key;
 
     return { defaultSource, sources: normalizedSources };
   }
@@ -98,7 +150,7 @@ class MangaTrackerService {
   }
 
   getSupportedSourcesLabel() {
-    return this.mangaSources.sources.map((source) => source.displayName).join(', ');
+    return this.enabledSources.map((source) => source.displayName).join(', ');
   }
 
   sanitizeUsername(username) {
@@ -150,8 +202,10 @@ class MangaTrackerService {
     const sourceKeyRaw = typeof entry.source === 'string' ? entry.source.trim().toLowerCase() : implicitSource;
     const sourceKey = this.mangaSourceMap.has(sourceKeyRaw) ? sourceKeyRaw : implicitSource;
 
-    const isMangadex = sourceKey === 'mangadex';
-    const isValidId = isMangadex ? UUID_REGEX.test(mangaId) : COMIX_ID_REGEX.test(mangaId);
+    const adapter = this.getSourceAdapter(sourceKey);
+    const isValidId = adapter && typeof adapter.validateMangaId === 'function'
+      ? adapter.validateMangaId(mangaId, this.getAdapterContext(this.mangaSourceMap.get(sourceKey)))
+      : true;
     if (!isValidId) {
       return null;
     }
@@ -169,7 +223,7 @@ class MangaTrackerService {
   normalizeUserData(rawData) {
     const rawPreferredSource =
       rawData && typeof rawData.preferredSource === 'string' ? rawData.preferredSource.trim().toLowerCase() : null;
-    const preferredSource = this.mangaSourceMap.has(rawPreferredSource) ? rawPreferredSource : this.mangaSources.defaultSource;
+    const preferredSource = this.enabledSourceMap.has(rawPreferredSource) ? rawPreferredSource : this.mangaSources.defaultSource;
 
     if (Array.isArray(rawData)) {
       const tracked = rawData.map((entry) => this.normalizeTrackedEntry(entry)).filter(Boolean);
@@ -254,6 +308,7 @@ class MangaTrackerService {
       totalTracked,
       defaultSource: this.mangaSources.defaultSource,
       sources: this.mangaSources.sources.length,
+      enabledSources: this.enabledSources.length,
     };
   }
 
@@ -283,17 +338,19 @@ class MangaTrackerService {
 
   getPreferredSource(userData) {
     const sourceKey = typeof userData?.preferredSource === 'string' ? userData.preferredSource.trim().toLowerCase() : '';
-    return this.mangaSourceMap.has(sourceKey) ? sourceKey : this.mangaSources.defaultSource;
+    return this.enabledSourceMap.has(sourceKey) ? sourceKey : this.mangaSources.defaultSource;
   }
 
   getOtherSources(sourceKey) {
-    return this.mangaSources.sources.map((source) => source.key).filter((key) => key !== sourceKey);
+    return this.enabledSources.map((source) => source.key).filter((key) => key !== sourceKey);
   }
 
   getTitleUrlForSource(sourceKey, mangaId) {
     const source = this.mangaSourceMap.get(sourceKey);
-    if (!source || !source.titleUrl) return null;
-    return `${source.titleUrl}${mangaId}`;
+    if (!source) return null;
+    const adapter = this.getSourceAdapter(sourceKey);
+    if (!adapter || typeof adapter.buildTitleUrl !== 'function') return null;
+    return adapter.buildTitleUrl(mangaId, this.getAdapterContext(source));
   }
 
   parseComixIdFromPath(pathname) {
@@ -305,7 +362,7 @@ class MangaTrackerService {
 
   resolveSourceFromHostname(hostname) {
     const normalizedHost = hostname.toLowerCase();
-    return this.mangaSources.sources.find((source) => source.hosts.includes(normalizedHost)) || null;
+    return this.enabledSources.find((source) => source.hosts.includes(normalizedHost)) || null;
   }
 
   extractMangaTarget(value) {
@@ -314,8 +371,20 @@ class MangaTrackerService {
     const trimmed = value.trim();
     if (!trimmed) return null;
 
-    if (UUID_REGEX.test(trimmed)) {
-      return { source: 'mangadex', mangaId: trimmed };
+    // Try direct id parsing across enabled adapters first.
+    for (const source of this.enabledSources) {
+      const adapter = this.getSourceAdapter(source.key);
+      if (!adapter || typeof adapter.parseIdFromInput !== 'function') continue;
+
+      const mangaId = adapter.parseIdFromInput(trimmed, this.getAdapterContext(source));
+      if (!mangaId) continue;
+
+      const isValidId = typeof adapter.validateMangaId === 'function'
+        ? adapter.validateMangaId(mangaId, this.getAdapterContext(source))
+        : true;
+      if (!isValidId) continue;
+
+      return { source: source.key, mangaId };
     }
 
     let url;
@@ -328,23 +397,18 @@ class MangaTrackerService {
     const source = this.resolveSourceFromHostname(url.hostname);
     if (!source) return null;
 
-    if (source.key === 'mangadex') {
-      const match = url.pathname.match(/\/title\/([0-9a-f-]{36})/i);
-      if (match && UUID_REGEX.test(match[1])) {
-        return { source: 'mangadex', mangaId: match[1] };
-      }
-      return null;
-    }
+    const adapter = this.getSourceAdapter(source.key);
+    if (!adapter || typeof adapter.parseIdFromInput !== 'function') return null;
 
-    if (source.key === 'comix') {
-      const comixId = this.parseComixIdFromPath(url.pathname);
-      if (comixId) {
-        return { source: 'comix', mangaId: comixId };
-      }
-      return null;
-    }
+    const context = this.getAdapterContext(source);
+    context.url = url;
 
-    return null;
+    const mangaId = adapter.parseIdFromInput(trimmed, context);
+    if (!mangaId) return null;
+    const isValidId = typeof adapter.validateMangaId === 'function' ? adapter.validateMangaId(mangaId, context) : true;
+    if (!isValidId) return null;
+
+    return { source: source.key, mangaId };
   }
 
   escapeRegExp(value) {
@@ -405,13 +469,10 @@ class MangaTrackerService {
   }
 
   async fetchMangaTitleForTarget(target) {
-    if (target.source === 'comix') {
-      const metadata = await this.fetchComixTitleMetadata(target.mangaId);
-      return metadata?.title || null;
-    }
-
-    const manga = await this.fetchMangaById(target.mangaId);
-    return manga ? this.pickMangaTitle(manga.attributes) : null;
+    const source = this.mangaSourceMap.get(target.source);
+    const adapter = this.getSourceAdapter(target.source);
+    if (!source || !adapter || typeof adapter.getTitle !== 'function') return null;
+    return adapter.getTitle(target.mangaId, this.getAdapterContext(source));
   }
 
   async searchMangadex(query, limit = 5) {
@@ -453,8 +514,12 @@ class MangaTrackerService {
   }
 
   async searchMangaOnSource(sourceKey, query, limit = 5) {
-    if (sourceKey === 'comix') return this.searchComix(query, limit);
-    return this.searchMangadex(query, limit);
+    const source = this.enabledSourceMap.get(sourceKey);
+    const adapter = this.getSourceAdapter(sourceKey);
+    if (!source || !adapter || typeof adapter.search !== 'function') {
+      return [];
+    }
+    return adapter.search(query, limit, this.getAdapterContext(source));
   }
 
   async findMangaTargetOnSource(sourceKey, input) {
@@ -521,22 +586,10 @@ class MangaTrackerService {
   }
 
   async fetchChapterSnapshotForEntry(entry) {
-    if (entry.source === 'comix') {
-      const metadata = await this.fetchComixTitleMetadata(entry.mangaId);
-      if (!metadata || metadata.latestChapter === null) return null;
-
-      const chapterLabel = String(metadata.latestChapter);
-      return {
-        id: `comix:${entry.mangaId}:chapter:${chapterLabel}`,
-        chapter: chapterLabel,
-        title: null,
-        readableAt: metadata.readableAt,
-        link: metadata.link || this.getTitleUrlForSource('comix', entry.mangaId),
-        total: metadata.latestChapter,
-      };
-    }
-
-    return this.fetchChapterSnapshot(entry.mangaId);
+    const source = this.mangaSourceMap.get(entry.source);
+    const adapter = this.getSourceAdapter(entry.source);
+    if (!source || !adapter || typeof adapter.getLatestChapters !== 'function') return null;
+    return adapter.getLatestChapters(entry.mangaId, this.getAdapterContext(source));
   }
 
   parseChapterNumber(value) {
@@ -560,16 +613,7 @@ class MangaTrackerService {
     if (entry.title) return entry.title;
 
     try {
-      let title = 'Unknown Title';
-
-      if (entry.source === 'comix') {
-        const metadata = await this.fetchComixTitleMetadata(entry.mangaId);
-        title = metadata?.title || 'Unknown Title';
-      } else {
-        const manga = await this.fetchMangaById(entry.mangaId);
-        title = this.pickMangaTitle(manga?.attributes);
-      }
-
+      const title = (await this.fetchMangaTitleForTarget({ source: entry.source, mangaId: entry.mangaId })) || 'Unknown Title';
       entry.title = title;
       return title;
     } catch (error) {
@@ -902,7 +946,7 @@ class MangaTrackerService {
 
     if (Object.prototype.hasOwnProperty.call(settings, 'preferredSource')) {
       const preferredSource = String(settings.preferredSource || '').trim().toLowerCase();
-      if (!this.mangaSourceMap.has(preferredSource)) {
+      if (!this.enabledSourceMap.has(preferredSource)) {
         throw new Error('Invalid preferredSource');
       }
       userData.preferredSource = preferredSource;
@@ -923,7 +967,7 @@ class MangaTrackerService {
   async addTrackedByInput(userId, input, sourceHint) {
     const userData = this.getUserData(userId);
     const preferredSource = this.getPreferredSource(userData);
-    const sourceToUse = this.mangaSourceMap.has(sourceHint) ? sourceHint : preferredSource;
+    const sourceToUse = this.enabledSourceMap.has(sourceHint) ? sourceHint : preferredSource;
 
     let target = this.extractMangaTarget(input);
     if (!target) {

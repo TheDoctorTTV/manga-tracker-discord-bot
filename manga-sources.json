@@ -3,12 +3,16 @@
   "sources": [
     {
       "key": "mangadex",
+      "adapter": "mangadex",
+      "enabled": true,
       "displayName": "MangaDex",
       "hosts": ["mangadex.org", "www.mangadex.org"],
       "titleUrl": "https://mangadex.org/title/"
     },
     {
       "key": "comix",
+      "adapter": "comix",
+      "enabled": true,
       "displayName": "Comix",
       "hosts": ["comix.to", "www.comix.to"],
       "titleUrl": "https://comix.to/title/"

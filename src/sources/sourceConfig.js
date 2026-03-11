@@ -6,12 +6,16 @@ function buildFallbackSources() {
     sources: [
       {
         key: 'mangadex',
+        adapter: 'mangadex',
+        enabled: true,
         displayName: 'MangaDex',
         hosts: ['mangadex.org', 'www.mangadex.org'],
         titleUrl: 'https://mangadex.org/title/',
       },
       {
         key: 'comix',
+        adapter: 'comix',
+        enabled: true,
         displayName: 'Comix',
         hosts: ['comix.to', 'www.comix.to'],
         titleUrl: 'https://comix.to/title/',
@@ -32,6 +36,11 @@ function normalizeSource(rawSource) {
 
   return {
     key: rawSource.key.trim().toLowerCase(),
+    adapter:
+      typeof rawSource.adapter === 'string' && rawSource.adapter.trim()
+        ? rawSource.adapter.trim().toLowerCase()
+        : rawSource.key.trim().toLowerCase(),
+    enabled: rawSource.enabled !== false,
     displayName:
       typeof rawSource.displayName === 'string' && rawSource.displayName.trim()
         ? rawSource.displayName.trim()
@@ -59,8 +68,10 @@ function loadMangaSourcesConfig(sourceFilePath) {
     };
 
     if (normalized.sources.length === 0) return fallback;
-    if (!normalized.sources.some((source) => source.key === normalized.defaultSource)) {
-      normalized.defaultSource = normalized.sources[0].key;
+    const enabledSources = normalized.sources.filter((source) => source.enabled);
+    const defaultPool = enabledSources.length > 0 ? enabledSources : normalized.sources;
+    if (!defaultPool.some((source) => source.key === normalized.defaultSource)) {
+      normalized.defaultSource = defaultPool[0].key;
     }
 
     return normalized;

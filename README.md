@@ -12,7 +12,7 @@ Manga Tracker is an open-source Discord bot designed to help manga enthusiasts s
 - Manually check updates at any time.
 - Export and import your tracked manga list to/from JSON files.
 - Web dashboard for admin management of users, tracked manga, and settings.
-- Configure supported manga source domains in `manga-sources.json`.
+- Configure dynamic source metadata in `manga-sources.json` (`key`, `adapter`, `enabled`, hosts, URLs).
 
 ## Commands
 
