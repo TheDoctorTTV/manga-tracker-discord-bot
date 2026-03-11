@@ -152,7 +152,7 @@ journalctl -u manga-tracker-discord-bot -f
 Use the **About** tab in the admin dashboard:
 1. Click **Check For Updates**.
 2. Click **Apply Latest Update**.
-3. The bot replaces the binary and restarts (systemd brings it back up).
+3. A detached updater worker replaces the binary and starts the new binary process.
 
 Optional updater env vars:
 - `GITHUB_TOKEN` (for higher GitHub API rate limits/private release access)

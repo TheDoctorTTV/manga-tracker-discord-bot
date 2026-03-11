@@ -2,6 +2,8 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 const crypto = require('crypto');
+const os = require('os');
+const { spawn } = require('child_process');
 
 function normalizeVersion(version) {
   return String(version || '')
@@ -245,6 +247,10 @@ class GitHubReleaseUpdater {
   }
 
   async applyUpdate({ assetName = '' } = {}) {
+    if (!this.getState().runningAsBinary) {
+      throw new Error('Updater requires BOT_UPDATE_BINARY_PATH pointing to the bot binary when not running as a binary.');
+    }
+
     const stats = fs.statSync(this.binaryPath);
     if (!stats.isFile()) {
       throw new Error(`Binary path is not a file: ${this.binaryPath}`);
@@ -272,9 +278,13 @@ class GitHubReleaseUpdater {
       throw new Error('Downloaded asset is empty');
     }
 
-    fs.copyFileSync(this.binaryPath, backupPath);
-    fs.chmodSync(tempPath, stats.mode);
-    fs.renameSync(tempPath, this.binaryPath);
+    const worker = this.launchDetachedReplaceWorker({
+      targetBinaryPath: this.binaryPath,
+      downloadedBinaryPath: tempPath,
+      backupPath,
+      originalMode: stats.mode,
+      targetPid: process.pid,
+    });
 
     return {
       applied: true,
@@ -288,6 +298,67 @@ class GitHubReleaseUpdater {
       },
       backupPath,
       download,
+      worker,
+    };
+  }
+
+  launchDetachedReplaceWorker({ targetBinaryPath, downloadedBinaryPath, backupPath, originalMode, targetPid }) {
+    const scriptPath = path.join(os.tmpdir(), `manga-tracker-updater-${Date.now()}-${Math.random().toString(16).slice(2)}.sh`);
+    const scriptBody = `#!/usr/bin/env bash
+set -euo pipefail
+TARGET_BINARY="$1"
+NEW_BINARY="$2"
+BACKUP_BINARY="$3"
+MODE_OCTAL="$4"
+OLD_PID="$5"
+SCRIPT_SELF="$6"
+
+sleep 1
+if kill -0 "$OLD_PID" 2>/dev/null; then
+  kill -TERM "$OLD_PID" 2>/dev/null || true
+fi
+
+for _ in $(seq 1 120); do
+  if ! kill -0 "$OLD_PID" 2>/dev/null; then
+    break
+  fi
+  sleep 0.25
+done
+
+if kill -0 "$OLD_PID" 2>/dev/null; then
+  kill -KILL "$OLD_PID" 2>/dev/null || true
+fi
+
+if [[ -f "$TARGET_BINARY" ]]; then
+  cp "$TARGET_BINARY" "$BACKUP_BINARY" 2>/dev/null || true
+fi
+
+chmod "$MODE_OCTAL" "$NEW_BINARY" 2>/dev/null || chmod +x "$NEW_BINARY"
+mv -f "$NEW_BINARY" "$TARGET_BINARY"
+chmod "$MODE_OCTAL" "$TARGET_BINARY" 2>/dev/null || chmod +x "$TARGET_BINARY"
+
+nohup "$TARGET_BINARY" >/dev/null 2>&1 &
+
+rm -f "$SCRIPT_SELF" 2>/dev/null || true
+`;
+
+    fs.writeFileSync(scriptPath, scriptBody, { mode: 0o700 });
+    const modeOctal = (originalMode & 0o777).toString(8);
+
+    const child = spawn(
+      '/bin/bash',
+      [scriptPath, targetBinaryPath, downloadedBinaryPath, backupPath, modeOctal, String(targetPid), scriptPath],
+      {
+        detached: true,
+        stdio: 'ignore',
+      }
+    );
+    child.unref();
+
+    return {
+      pid: child.pid,
+      scriptPath,
+      modeOctal,
     };
   }
 }

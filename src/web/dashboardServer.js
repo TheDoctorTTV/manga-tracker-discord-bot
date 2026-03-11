@@ -787,7 +787,7 @@ function startDashboardServer({ service, updater }) {
           creator: BOT_CREATOR,
           version: BOT_VERSION,
           repo: BOT_GITHUB_REPO,
-          updateSystem: 'Built-in binary updater via GitHub Releases.',
+          updateSystem: 'Built-in updater uses a detached worker process to replace and restart the bot binary.',
         });
         return;
       }
@@ -853,12 +853,6 @@ function startDashboardServer({ service, updater }) {
         }
 
         sendJson(res, 200, getUpdaterStatus());
-
-        if (updaterState.lastApply && updaterState.lastApply.applied) {
-          setTimeout(() => {
-            process.exit(1);
-          }, 1500);
-        }
         return;
       }
 
