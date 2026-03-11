@@ -1,10 +1,12 @@
 const http = require('http');
+const path = require('path');
 const { URL } = require('url');
+const { spawn } = require('child_process');
 
 const {
+  BOT_VERSION,
   DASHBOARD_HOST,
   DASHBOARD_PORT,
-  DASHBOARD_ADMIN_TOKEN,
   MIN_AUTO_CHECK_HOURS,
   MAX_AUTO_CHECK_HOURS,
 } = require('../config');
@@ -44,129 +46,103 @@ function getRequestBody(req) {
   });
 }
 
-function isAuthorized(req) {
-  if (!DASHBOARD_ADMIN_TOKEN) return true;
-
-  const authHeader = req.headers.authorization || '';
-  const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length).trim() : '';
-  const headerToken = (req.headers['x-admin-token'] || '').trim();
-  return bearerToken === DASHBOARD_ADMIN_TOKEN || headerToken === DASHBOARD_ADMIN_TOKEN;
-}
-
 function getDashboardHtml() {
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Manga Tracker Dashboard</title>
+<title>Manga Tracker Admin Dashboard</title>
 <style>
 :root {
-  --bg: #0f1b26;
-  --panel: #132636;
-  --panel-alt: #1b3348;
-  --text: #e8f0f7;
-  --muted: #9bb0c3;
-  --accent: #46b3ff;
-  --danger: #ff6e6e;
-  --ok: #53d389;
+  --bg: #0e1923;
+  --panel: #122433;
+  --panel-alt: #193549;
+  --text: #e6edf4;
+  --muted: #9eb0c1;
+  --accent: #4ab8ff;
+  --danger: #e67e7e;
+  --ok: #65d99a;
 }
 * { box-sizing: border-box; }
 body {
   margin: 0;
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
-  background: radial-gradient(circle at top left, #1a2f45 0%, var(--bg) 50%);
+  background: radial-gradient(circle at top left, #1b3145 0%, var(--bg) 55%);
   color: var(--text);
 }
 header {
-  padding: 20px;
-  border-bottom: 1px solid #2a4258;
+  padding: 18px 20px;
+  border-bottom: 1px solid #2b4257;
 }
 main {
   display: grid;
-  grid-template-columns: 360px 1fr;
-  gap: 16px;
-  padding: 16px;
+  grid-template-columns: 320px 1fr 1fr;
+  gap: 14px;
+  padding: 14px;
 }
 .panel {
   background: linear-gradient(180deg, var(--panel) 0%, var(--panel-alt) 100%);
-  border: 1px solid #2d455d;
+  border: 1px solid #2c4760;
   border-radius: 12px;
-  padding: 14px;
+  padding: 12px;
 }
-h1, h2, h3 { margin: 0 0 10px; }
-input, select, button {
+h1, h2, h3 { margin: 0 0 8px; }
+small, .muted { color: var(--muted); }
+input, select, button, textarea {
   width: 100%;
-  padding: 8px;
   border-radius: 8px;
-  border: 1px solid #38546f;
-  background: #102536;
+  border: 1px solid #395776;
+  background: #102738;
   color: var(--text);
+  padding: 8px;
   margin-bottom: 8px;
 }
-button { cursor: pointer; background: #1d425f; }
-button:hover { background: #26587d; }
+button { cursor: pointer; background: #1f4768; }
+button:hover { background: #285c86; }
+button.warn { background: #6a3434; border-color: #8d4a4a; }
+button.warn:hover { background: #834242; }
 .row { display: flex; gap: 8px; }
 .row > * { flex: 1; }
-.list {
-  max-height: 65vh;
-  overflow: auto;
-  border: 1px solid #355069;
-  border-radius: 8px;
-}
-.user-item {
-  padding: 10px;
-  border-bottom: 1px solid #2c4357;
-  cursor: pointer;
-}
-.user-item:hover { background: #1f3a52; }
-.user-item.active { background: #275174; }
-small, .muted { color: var(--muted); }
-.badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 12px;
-  background: #2a506f;
-}
-.tracked-row {
-  border: 1px solid #355069;
-  border-radius: 8px;
-  padding: 10px;
-  margin-bottom: 8px;
-}
-.danger { background: #642d2d; border-color: #8c4343; }
+.list { max-height: 70vh; overflow: auto; border: 1px solid #36536e; border-radius: 8px; }
+.user-item { padding: 10px; border-bottom: 1px solid #2c4358; cursor: pointer; }
+.user-item:hover { background: #1f3b52; }
+.user-item.active { background: #295678; }
+.badge { background: #2a4f6f; border-radius: 999px; padding: 2px 8px; font-size: 12px; }
+.tracked-row { border: 1px solid #355069; border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+code, pre { background: #0d1e2c; border: 1px solid #28425a; border-radius: 8px; }
+pre { padding: 8px; max-height: 230px; overflow: auto; white-space: pre-wrap; }
 .status.ok { color: var(--ok); }
 .status.err { color: var(--danger); }
-@media (max-width: 980px) {
-  main { grid-template-columns: 1fr; }
-}
+@media (max-width: 1260px) { main { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
 <header>
-  <h1>Manga Tracker Dashboard</h1>
-  <div class="row">
-    <input id="adminToken" type="password" placeholder="Dashboard admin token (if enabled)" />
-    <button id="saveToken">Save Token</button>
-  </div>
-  <small>API auth uses header <code>x-admin-token</code>. Leave blank if token auth is disabled.</small>
+  <h1>Manga Tracker Admin Dashboard</h1>
+  <small>Admin-only controls. Discord users continue using slash commands.</small>
 </header>
 <main>
   <section class="panel">
     <h2>Users</h2>
-    <button id="refreshUsers">Refresh Users</button>
+    <button id="refreshUsers">Refresh</button>
     <div id="users" class="list"></div>
   </section>
+
   <section class="panel">
     <h2 id="selectedUserTitle">Select a user</h2>
     <div id="userMeta" class="muted"></div>
-    <h3>Settings</h3>
+
+    <h3>User Settings</h3>
     <label>Preferred Source</label>
     <select id="preferredSource"></select>
     <label>Auto-check Interval (hours)</label>
     <input id="autoHours" type="number" min="${MIN_AUTO_CHECK_HOURS}" max="${MAX_AUTO_CHECK_HOURS}" />
-    <button id="saveSettings">Save Settings</button>
+    <div class="row">
+      <button id="saveSettings">Save Settings</button>
+      <button id="deleteUser" class="warn">Delete User</button>
+    </div>
+
     <h3>Tracked Manga</h3>
     <div class="row">
       <input id="addInput" placeholder="Manga URL, ID, or title" />
@@ -175,6 +151,27 @@ small, .muted { color: var(--muted); }
     <button id="addTracked">Add Manga</button>
     <div id="trackedList"></div>
     <div id="statusLine" class="status"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Admin Controls</h2>
+
+    <h3>Summary</h3>
+    <div id="summary" class="muted">Loading...</div>
+
+    <h3>Sources Config</h3>
+    <small>Edit JSON and save. This updates <code>manga-sources.json</code> immediately.</small>
+    <textarea id="sourcesConfig" rows="12" spellcheck="false"></textarea>
+    <div class="row">
+      <button id="reloadSources">Reload File</button>
+      <button id="saveSources">Save Sources</button>
+    </div>
+
+    <h3>Maintenance</h3>
+    <input id="updateRef" placeholder="Optional ref (branch/tag), blank = current" />
+    <button id="runUpdate">Run scripts/update.sh</button>
+    <small id="updateMeta" class="muted">No update task started yet.</small>
+    <pre id="updateLog"></pre>
   </section>
 </main>
 <script>
@@ -185,28 +182,15 @@ const state = {
   selectedUserData: null,
 };
 
-const adminTokenInput = document.getElementById('adminToken');
-adminTokenInput.value = localStorage.getItem('dashboardAdminToken') || '';
-
-document.getElementById('saveToken').addEventListener('click', () => {
-  localStorage.setItem('dashboardAdminToken', adminTokenInput.value.trim());
-  setStatus('Token saved locally.', true);
-});
-
-function authHeaders() {
-  const token = (localStorage.getItem('dashboardAdminToken') || '').trim();
-  return token ? { 'x-admin-token': token } : {};
-}
-
 async function api(path, options = {}) {
-  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}), ...authHeaders() };
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
   const response = await fetch(path, { ...options, headers });
 
   if (!response.ok) {
     let message = response.statusText;
     try {
-      const errorPayload = await response.json();
-      message = errorPayload.error || message;
+      const payload = await response.json();
+      message = payload.error || message;
     } catch {}
     throw new Error(message);
   }
@@ -232,7 +216,8 @@ function renderUsers() {
   for (const user of state.users) {
     const row = document.createElement('div');
     row.className = 'user-item' + (state.selectedUserId === user.userId ? ' active' : '');
-    row.innerHTML = '<div><strong>' + user.userId + '</strong> <span class="badge">' + user.trackedCount + ' tracked</span></div>' +
+    row.innerHTML =
+      '<div><strong>' + user.userId + '</strong> <span class="badge">' + user.trackedCount + ' tracked</span></div>' +
       '<small>' + user.preferredSource + ' • every ' + user.autoCheckIntervalHours + 'h</small>';
     row.addEventListener('click', () => selectUser(user.userId));
     container.appendChild(row);
@@ -251,9 +236,11 @@ function populateSourceOptions() {
     option.textContent = source.displayName + ' (' + source.key + ')';
     preferred.appendChild(option);
 
-    const hint = option.cloneNode(true);
-    addHint.appendChild(hint);
+    const option2 = option.cloneNode(true);
+    addHint.appendChild(option2);
   }
+
+  document.getElementById('sourcesConfig').value = JSON.stringify(state.sources, null, 2);
 }
 
 function renderTracked() {
@@ -273,7 +260,7 @@ function renderTracked() {
       '<small>' + entry.source + ' • ' + entry.mangaId + '</small>';
 
     const removeBtn = document.createElement('button');
-    removeBtn.className = 'danger';
+    removeBtn.className = 'warn';
     removeBtn.textContent = 'Remove';
     removeBtn.addEventListener('click', async () => {
       try {
@@ -293,10 +280,22 @@ function renderTracked() {
   }
 }
 
+async function refreshSummary() {
+  const payload = await api('/api/admin/summary');
+  const s = payload.summary;
+  document.getElementById('summary').textContent =
+    'Version ' + payload.version + ' • Users: ' + s.users + ' • Tracked: ' + s.totalTracked + ' • Sources: ' + s.sources + ' • Default: ' + s.defaultSource;
+}
+
 async function refreshUsers() {
   const payload = await api('/api/users');
   state.users = payload.users;
   renderUsers();
+}
+
+async function refreshSources() {
+  state.sources = await api('/api/admin/sources');
+  populateSourceOptions();
 }
 
 async function selectUser(userId) {
@@ -305,9 +304,11 @@ async function selectUser(userId) {
   state.selectedUserData = payload.user;
 
   document.getElementById('selectedUserTitle').textContent = 'User ' + userId;
-  document.getElementById('userMeta').textContent = 'Tracked: ' + payload.user.tracked.length + ' • Last auto-check: ' + (payload.user.lastAutoCheckAt || 'never');
+  document.getElementById('userMeta').textContent =
+    'Tracked: ' + payload.user.tracked.length + ' • Last auto-check: ' + (payload.user.lastAutoCheckAt || 'never');
   document.getElementById('preferredSource').value = payload.user.preferredSource;
   document.getElementById('autoHours').value = payload.user.autoCheckIntervalHours;
+
   renderUsers();
   renderTracked();
 }
@@ -326,9 +327,34 @@ async function saveSettings() {
         autoCheckIntervalHours: Number(document.getElementById('autoHours').value),
       }),
     });
+
     setStatus('Settings updated.', true);
     await selectUser(state.selectedUserId);
     await refreshUsers();
+  } catch (error) {
+    setStatus(error.message, false);
+  }
+}
+
+async function deleteUser() {
+  if (!state.selectedUserId) {
+    setStatus('Select a user first.', false);
+    return;
+  }
+
+  const confirmed = window.confirm('Delete user ' + state.selectedUserId + ' and all tracked data?');
+  if (!confirmed) return;
+
+  try {
+    await api('/api/users/' + state.selectedUserId, { method: 'DELETE' });
+    setStatus('User deleted.', true);
+    state.selectedUserId = null;
+    state.selectedUserData = null;
+    document.getElementById('selectedUserTitle').textContent = 'Select a user';
+    document.getElementById('userMeta').textContent = '';
+    document.getElementById('trackedList').innerHTML = '';
+    await refreshUsers();
+    await refreshSummary();
   } catch (error) {
     setStatus(error.message, false);
   }
@@ -359,6 +385,73 @@ async function addTracked() {
     document.getElementById('addInput').value = '';
     await selectUser(state.selectedUserId);
     await refreshUsers();
+    await refreshSummary();
+  } catch (error) {
+    setStatus(error.message, false);
+  }
+}
+
+async function saveSources() {
+  try {
+    const payload = JSON.parse(document.getElementById('sourcesConfig').value);
+    const updated = await api('/api/admin/sources', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+    state.sources = updated;
+    populateSourceOptions();
+    setStatus('Sources config saved and reloaded.', true);
+    await refreshSummary();
+  } catch (error) {
+    setStatus(error.message, false);
+  }
+}
+
+async function reloadSources() {
+  try {
+    state.sources = await api('/api/admin/sources/reload', { method: 'POST' });
+    populateSourceOptions();
+    setStatus('Sources reloaded from file.', true);
+    await refreshSummary();
+  } catch (error) {
+    setStatus(error.message, false);
+  }
+}
+
+function renderUpdateTask(task) {
+  const meta = document.getElementById('updateMeta');
+  const log = document.getElementById('updateLog');
+
+  if (!task) {
+    meta.textContent = 'No update task started yet.';
+    log.textContent = '';
+    return;
+  }
+
+  const status = task.running ? 'running' : (task.exitCode === 0 ? 'success' : 'failed');
+  meta.textContent =
+    'Task ' + task.id + ' • ' + status + ' • started ' + task.startedAt + (task.finishedAt ? ' • finished ' + task.finishedAt : '');
+  log.textContent = (task.output || []).join('');
+}
+
+async function refreshUpdateTask() {
+  try {
+    const payload = await api('/api/admin/update');
+    renderUpdateTask(payload.task);
+  } catch (error) {
+    setStatus(error.message, false);
+  }
+}
+
+async function runUpdate() {
+  const ref = document.getElementById('updateRef').value.trim();
+  try {
+    const payload = await api('/api/admin/update', {
+      method: 'POST',
+      body: JSON.stringify({ ref: ref || null }),
+    });
+    renderUpdateTask(payload.task);
+    setStatus('Update script started.', true);
   } catch (error) {
     setStatus(error.message, false);
   }
@@ -367,6 +460,7 @@ async function addTracked() {
 document.getElementById('refreshUsers').addEventListener('click', async () => {
   try {
     await refreshUsers();
+    await refreshSummary();
     setStatus('User list refreshed.', true);
   } catch (error) {
     setStatus(error.message, false);
@@ -374,14 +468,18 @@ document.getElementById('refreshUsers').addEventListener('click', async () => {
 });
 
 document.getElementById('saveSettings').addEventListener('click', saveSettings);
+document.getElementById('deleteUser').addEventListener('click', deleteUser);
 document.getElementById('addTracked').addEventListener('click', addTracked);
+document.getElementById('saveSources').addEventListener('click', saveSources);
+document.getElementById('reloadSources').addEventListener('click', reloadSources);
+document.getElementById('runUpdate').addEventListener('click', runUpdate);
+
+setInterval(refreshUpdateTask, 3000);
 
 (async () => {
   try {
-    state.sources = await api('/api/sources');
-    populateSourceOptions();
-    await refreshUsers();
-    setStatus('Dashboard ready.', true);
+    await Promise.all([refreshSources(), refreshUsers(), refreshSummary(), refreshUpdateTask()]);
+    setStatus('Admin dashboard ready.', true);
   } catch (error) {
     setStatus(error.message, false);
   }
@@ -392,6 +490,66 @@ document.getElementById('addTracked').addEventListener('click', addTracked);
 }
 
 function startDashboardServer({ service }) {
+  let activeUpdateTask = null;
+  let updateCounter = 0;
+
+  const rootDir = process.cwd();
+  const updateScriptPath = path.join(rootDir, 'scripts', 'update.sh');
+
+  function appendTaskOutput(task, chunk) {
+    const text = String(chunk || '');
+    if (!text) return;
+    task.output.push(text);
+    if (task.output.length > 400) {
+      task.output = task.output.slice(task.output.length - 400);
+    }
+  }
+
+  function runUpdateTask(ref) {
+    if (activeUpdateTask && activeUpdateTask.running) {
+      throw new Error('An update task is already running');
+    }
+
+    updateCounter += 1;
+    const task = {
+      id: updateCounter,
+      ref: ref || null,
+      running: true,
+      exitCode: null,
+      startedAt: new Date().toISOString(),
+      finishedAt: null,
+      output: [],
+    };
+
+    const args = [];
+    if (ref) args.push(ref);
+
+    const child = spawn(updateScriptPath, args, {
+      cwd: rootDir,
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    child.stdout.on('data', (chunk) => appendTaskOutput(task, chunk));
+    child.stderr.on('data', (chunk) => appendTaskOutput(task, chunk));
+
+    child.on('error', (error) => {
+      appendTaskOutput(task, `\n[error] ${error.message}\n`);
+      task.running = false;
+      task.exitCode = -1;
+      task.finishedAt = new Date().toISOString();
+    });
+
+    child.on('close', (code) => {
+      task.running = false;
+      task.exitCode = Number.isInteger(code) ? code : -1;
+      task.finishedAt = new Date().toISOString();
+    });
+
+    activeUpdateTask = task;
+    return task;
+  }
+
   const server = http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url, `http://${req.headers.host || `${DASHBOARD_HOST}:${DASHBOARD_PORT}`}`);
     const pathName = requestUrl.pathname;
@@ -402,19 +560,42 @@ function startDashboardServer({ service }) {
     }
 
     if (req.method === 'GET' && pathName === '/status') {
-      sendJson(res, 200, { status: 'ok', service: 'dashboard' });
+      sendJson(res, 200, { status: 'ok', service: 'admin-dashboard' });
       return;
     }
 
     if (pathName.startsWith('/api/')) {
-      if (!isAuthorized(req)) {
-        sendJson(res, 401, { error: 'Unauthorized. Set DASHBOARD_ADMIN_TOKEN and provide x-admin-token.' });
-        return;
-      }
-
       try {
-        if (req.method === 'GET' && pathName === '/api/sources') {
+        if (req.method === 'GET' && pathName === '/api/admin/summary') {
+          sendJson(res, 200, { version: BOT_VERSION, summary: service.getAdminSummary() });
+          return;
+        }
+
+        if (req.method === 'GET' && pathName === '/api/admin/sources') {
           sendJson(res, 200, service.getSources());
+          return;
+        }
+
+        if (req.method === 'PUT' && pathName === '/api/admin/sources') {
+          const body = await getRequestBody(req);
+          sendJson(res, 200, service.saveSourcesConfig(body));
+          return;
+        }
+
+        if (req.method === 'POST' && pathName === '/api/admin/sources/reload') {
+          sendJson(res, 200, service.reloadSourcesConfig());
+          return;
+        }
+
+        if (req.method === 'GET' && pathName === '/api/admin/update') {
+          sendJson(res, 200, { task: activeUpdateTask });
+          return;
+        }
+
+        if (req.method === 'POST' && pathName === '/api/admin/update') {
+          const body = await getRequestBody(req);
+          const ref = typeof body.ref === 'string' ? body.ref.trim() : '';
+          sendJson(res, 202, { task: runUpdateTask(ref || null) });
           return;
         }
 
@@ -427,6 +608,17 @@ function startDashboardServer({ service }) {
         if (req.method === 'GET' && userMatch) {
           const userId = userMatch[1];
           sendJson(res, 200, { user: service.getUserData(userId) });
+          return;
+        }
+
+        if (req.method === 'DELETE' && userMatch) {
+          const userId = userMatch[1];
+          const deleted = service.deleteUser(userId);
+          if (!deleted) {
+            sendJson(res, 404, { error: 'User not found' });
+            return;
+          }
+          sendJson(res, 200, { deleted: true });
           return;
         }
 
@@ -495,10 +687,8 @@ function startDashboardServer({ service }) {
   });
 
   server.listen(DASHBOARD_PORT, DASHBOARD_HOST, () => {
-    console.log(`Dashboard running at http://${DASHBOARD_HOST}:${DASHBOARD_PORT}`);
-    if (!DASHBOARD_ADMIN_TOKEN) {
-      console.warn('Dashboard auth is disabled (DASHBOARD_ADMIN_TOKEN not set).');
-    }
+    console.log(`Admin dashboard running at http://${DASHBOARD_HOST}:${DASHBOARD_PORT}`);
+    console.warn('Dashboard auth is intentionally disabled for now. Restrict network exposure at the host/firewall level.');
   });
 
   return server;

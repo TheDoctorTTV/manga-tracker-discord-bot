@@ -65,7 +65,6 @@ npm -v
 3. Edit `.env`:
    ```env
    DISCORD_TOKEN=your_discord_bot_token
-   DASHBOARD_ADMIN_TOKEN=change_me
    DASHBOARD_PORT=9898
    DASHBOARD_HOST=127.0.0.1
    ```
@@ -85,7 +84,7 @@ Dashboard URL (local by default):
 http://127.0.0.1:9898
 ```
 
-If `DASHBOARD_ADMIN_TOKEN` is set, enter it in the dashboard header to unlock API actions.
+The dashboard currently runs without built-in auth while admin features are being completed. Keep it bound to localhost or behind your own network controls.
 
 ## Run as a systemd service (recommended)
 

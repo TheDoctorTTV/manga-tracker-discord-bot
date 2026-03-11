@@ -9,7 +9,6 @@ const REQUIRED_ENV_VARS = ['DISCORD_TOKEN'];
 const STATUS_PORT = Number.parseInt(process.env.STATUS_PORT || '25589', 10);
 const DASHBOARD_PORT = Number.parseInt(process.env.DASHBOARD_PORT || '9898', 10);
 const DASHBOARD_HOST = process.env.DASHBOARD_HOST || '127.0.0.1';
-const DASHBOARD_ADMIN_TOKEN = process.env.DASHBOARD_ADMIN_TOKEN || '';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const COMIX_ID_REGEX = /^[a-z0-9]{4,}$/i;
@@ -28,7 +27,6 @@ module.exports = {
   STATUS_PORT,
   DASHBOARD_PORT,
   DASHBOARD_HOST,
-  DASHBOARD_ADMIN_TOKEN,
   UUID_REGEX,
   COMIX_ID_REGEX,
   MIN_AUTO_CHECK_HOURS,

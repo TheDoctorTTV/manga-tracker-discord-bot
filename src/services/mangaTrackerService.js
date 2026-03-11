@@ -18,12 +18,79 @@ const { loadMangaSourcesConfig } = require('../sources/sourceConfig');
 class MangaTrackerService {
   constructor({ mangaDir = MANGA_DIR, mangaSourcesFile }) {
     this.mangaDir = mangaDir;
-    this.mangaSources = loadMangaSourcesConfig(mangaSourcesFile);
-    this.mangaSourceMap = new Map(this.mangaSources.sources.map((source) => [source.key, source]));
+    this.mangaSourcesFile = mangaSourcesFile;
+    this.applySourcesConfig(loadMangaSourcesConfig(this.mangaSourcesFile));
 
     if (!fs.existsSync(this.mangaDir)) {
       fs.mkdirSync(this.mangaDir, { recursive: true });
     }
+  }
+
+  applySourcesConfig(config) {
+    this.mangaSources = config;
+    this.mangaSourceMap = new Map(this.mangaSources.sources.map((source) => [source.key, source]));
+  }
+
+  reloadSourcesConfig() {
+    this.applySourcesConfig(loadMangaSourcesConfig(this.mangaSourcesFile));
+    return this.mangaSources;
+  }
+
+  normalizeSourceConfigPayload(payload) {
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('Invalid source config payload');
+    }
+
+    if (!Array.isArray(payload.sources) || payload.sources.length === 0) {
+      throw new Error('sources must be a non-empty array');
+    }
+
+    const normalizedSources = [];
+    const seenKeys = new Set();
+
+    for (const rawSource of payload.sources) {
+      if (!rawSource || typeof rawSource !== 'object') {
+        throw new Error('Each source must be an object');
+      }
+
+      const key = typeof rawSource.key === 'string' ? rawSource.key.trim().toLowerCase() : '';
+      if (!key) throw new Error('Each source requires a key');
+      if (seenKeys.has(key)) throw new Error(`Duplicate source key: ${key}`);
+      seenKeys.add(key);
+
+      const hosts = Array.isArray(rawSource.hosts)
+        ? rawSource.hosts
+            .map((host) => (typeof host === 'string' ? host.trim().toLowerCase() : ''))
+            .filter(Boolean)
+        : [];
+      if (hosts.length === 0) throw new Error(`Source ${key} must include at least one host`);
+
+      normalizedSources.push({
+        key,
+        displayName:
+          typeof rawSource.displayName === 'string' && rawSource.displayName.trim()
+            ? rawSource.displayName.trim()
+            : key,
+        hosts,
+        titleUrl:
+          typeof rawSource.titleUrl === 'string' && rawSource.titleUrl.trim()
+            ? rawSource.titleUrl.trim()
+            : null,
+      });
+    }
+
+    const requestedDefault =
+      typeof payload.defaultSource === 'string' ? payload.defaultSource.trim().toLowerCase() : normalizedSources[0].key;
+    const defaultSource = seenKeys.has(requestedDefault) ? requestedDefault : normalizedSources[0].key;
+
+    return { defaultSource, sources: normalizedSources };
+  }
+
+  saveSourcesConfig(payload) {
+    const normalized = this.normalizeSourceConfigPayload(payload);
+    fs.writeFileSync(this.mangaSourcesFile, JSON.stringify(normalized, null, 2));
+    this.applySourcesConfig(normalized);
+    return normalized;
   }
 
   getSources() {
@@ -177,6 +244,24 @@ class MangaTrackerService {
     }
 
     return users.sort((a, b) => a.userId.localeCompare(b.userId));
+  }
+
+  getAdminSummary() {
+    const users = this.listUsers();
+    const totalTracked = users.reduce((sum, user) => sum + user.trackedCount, 0);
+    return {
+      users: users.length,
+      totalTracked,
+      defaultSource: this.mangaSources.defaultSource,
+      sources: this.mangaSources.sources.length,
+    };
+  }
+
+  deleteUser(userId) {
+    const filePath = this.getUserFilePath(userId);
+    if (!fs.existsSync(filePath)) return false;
+    fs.unlinkSync(filePath);
+    return true;
   }
 
   pickMangaTitle(attributes = {}) {
