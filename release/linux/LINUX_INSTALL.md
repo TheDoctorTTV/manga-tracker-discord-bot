@@ -26,17 +26,19 @@ journalctl -u manga-tracker-discord-bot -f
 
 ## Uninstall
 
-Stop/disable service and remove only systemd unit:
+Full uninstall (stops/disables service and deletes unit, install directory, and env file):
 
 ```bash
 sudo ./uninstall_systemd_service.sh
 ```
 
-Full purge (also removes `/opt/manga-tracker-discord-bot` and env file):
+Non-interactive uninstall for automation:
 
 ```bash
-sudo PURGE=1 ./uninstall_systemd_service.sh
+sudo FORCE=1 ./uninstall_systemd_service.sh
 ```
+
+The uninstall script prints a bold red warning and requires typing `DELETE` unless `FORCE=1` is provided.
 
 ## Optional Environment Overrides
 
