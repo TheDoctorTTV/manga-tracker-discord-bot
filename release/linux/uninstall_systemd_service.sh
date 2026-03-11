@@ -7,6 +7,13 @@ BINARY_NAME="${BINARY_NAME:-manga-tracker}"
 ENV_FILE="${ENV_FILE:-/etc/manga-tracker-discord-bot.env}"
 FORCE="${FORCE:-0}"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PACKAGE_DIR_DEFAULT=""
+if [[ "$(basename "$SCRIPT_DIR")" == "manga-tracker-linux" ]]; then
+  PACKAGE_DIR_DEFAULT="$SCRIPT_DIR"
+fi
+PACKAGE_DIR="${PACKAGE_DIR:-$PACKAGE_DIR_DEFAULT}"
+
 UNIT_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 TARGET_BINARY="${INSTALL_DIR}/${BINARY_NAME}"
 
@@ -24,6 +31,9 @@ echo -e "${RED_BOLD}Items to be deleted:${RESET_COLOR}"
 echo "  - systemd unit: $UNIT_FILE"
 echo "  - install directory: $INSTALL_DIR"
 echo "  - environment file: $ENV_FILE"
+if [[ -n "$PACKAGE_DIR" ]]; then
+  echo "  - release package directory: $PACKAGE_DIR"
+fi
 echo
 
 if [[ "$FORCE" != "1" ]]; then
@@ -61,5 +71,18 @@ echo "Removing installed files"
 $SUDO rm -f "$TARGET_BINARY"
 $SUDO rm -rf "$INSTALL_DIR"
 $SUDO rm -f "$ENV_FILE"
+
+if [[ -n "$PACKAGE_DIR" && -d "$PACKAGE_DIR" ]]; then
+  if [[ "$PWD" == "$PACKAGE_DIR" || "$PWD" == "$PACKAGE_DIR/"* ]]; then
+    echo "Scheduling package directory cleanup after script exit: $PACKAGE_DIR"
+    (
+      sleep 1
+      rm -rf "$PACKAGE_DIR"
+    ) >/dev/null 2>&1 &
+  else
+    echo "Removing package directory: $PACKAGE_DIR"
+    rm -rf "$PACKAGE_DIR"
+  fi
+fi
 
 echo "Uninstall complete."

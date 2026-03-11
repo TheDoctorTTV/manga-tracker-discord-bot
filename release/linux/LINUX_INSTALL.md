@@ -39,6 +39,7 @@ sudo FORCE=1 ./uninstall_systemd_service.sh
 ```
 
 The uninstall script prints a bold red warning and requires typing `DELETE` unless `FORCE=1` is provided.
+When run from the extracted `manga-tracker-linux` folder, it also deletes that package directory.
 
 ## Optional Environment Overrides
 
@@ -46,5 +47,6 @@ The uninstall script prints a bold red warning and requires typing `DELETE` unle
 - `INSTALL_DIR` (default: `/opt/manga-tracker-discord-bot`)
 - `BINARY_NAME` (default: `manga-tracker`)
 - `ENV_FILE` (default: `/etc/manga-tracker-discord-bot.env`)
+- `PACKAGE_DIR` (default: extracted `manga-tracker-linux` directory when detected; set `PACKAGE_DIR=""` to keep it)
 - `BOT_USER` (default: current user)
 - `BOT_GROUP` (default: same as `BOT_USER`)
