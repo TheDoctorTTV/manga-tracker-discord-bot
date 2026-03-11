@@ -153,7 +153,8 @@ function startDashboardServer({ service, updater }) {
           creator: BOT_CREATOR,
           version: BOT_VERSION,
           repo: BOT_GITHUB_REPO,
-          updateSystem: 'Built-in updater uses the public GitHub Releases feed and a detached worker process to replace/restart the bot binary.',
+          updateSystem:
+            'Built-in updater uses the public GitHub Releases feed and a detached worker process to replace the bot binary and restart the configured systemd service.',
         });
         return;
       }

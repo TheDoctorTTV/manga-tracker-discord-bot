@@ -154,11 +154,12 @@ journalctl -u manga-tracker-discord-bot -f
 Use the **About** tab in the admin dashboard:
 1. Click **Check For Updates**.
 2. Click **Apply Latest Update**.
-3. A detached updater worker replaces the binary and starts the new binary process.
+3. A detached updater worker replaces the binary and runs `systemctl restart` for the bot service.
 
 Optional updater env vars:
 - `BOT_UPDATE_BINARY_PATH` (override binary file path)
 - `BOT_UPDATE_ASSET_NAME` (force a specific release asset)
+- `BOT_UPDATE_SYSTEMD_SERVICE` (systemd service name to restart, default: `manga-tracker-discord-bot`)
 
 In the dashboard About tab updater:
 - Choose `Release` or `Release + Prerelease`.

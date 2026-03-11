@@ -151,12 +151,14 @@ class GitHubReleaseUpdater {
     currentVersion,
     binaryPath = process.env.BOT_UPDATE_BINARY_PATH || process.execPath,
     assetName = process.env.BOT_UPDATE_ASSET_NAME || '',
+    systemdService = process.env.BOT_UPDATE_SYSTEMD_SERVICE || 'manga-tracker-discord-bot',
   }) {
     this.repoUrl = repoUrl;
     this.repoSlug = parseRepoSlug(repoUrl);
     this.currentVersion = currentVersion;
     this.binaryPath = path.resolve(binaryPath);
     this.assetName = assetName.trim();
+    this.systemdService = String(systemdService || '').trim();
   }
 
   getState() {
@@ -166,6 +168,7 @@ class GitHubReleaseUpdater {
       currentVersion: this.currentVersion,
       binaryPath: this.binaryPath,
       runningAsBinary: path.basename(this.binaryPath).toLowerCase() !== 'node',
+      systemdService: this.systemdService || null,
     };
   }
 
@@ -356,6 +359,7 @@ BACKUP_BINARY="$3"
 MODE_OCTAL="$4"
 OLD_PID="$5"
 SCRIPT_SELF="$6"
+SYSTEMD_SERVICE="$7"
 
 sleep 1
 if kill -0 "$OLD_PID" 2>/dev/null; then
@@ -381,7 +385,17 @@ chmod "$MODE_OCTAL" "$NEW_BINARY" 2>/dev/null || chmod +x "$NEW_BINARY"
 mv -f "$NEW_BINARY" "$TARGET_BINARY"
 chmod "$MODE_OCTAL" "$TARGET_BINARY" 2>/dev/null || chmod +x "$TARGET_BINARY"
 
-nohup "$TARGET_BINARY" >/dev/null 2>&1 &
+if [[ -z "$SYSTEMD_SERVICE" ]]; then
+  echo "Missing systemd service name for update restart" >&2
+  exit 1
+fi
+
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl restart "$SYSTEMD_SERVICE"
+else
+  echo "systemctl not found; cannot restart service $SYSTEMD_SERVICE" >&2
+  exit 1
+fi
 
 rm -f "$SCRIPT_SELF" 2>/dev/null || true
 `;
@@ -391,7 +405,7 @@ rm -f "$SCRIPT_SELF" 2>/dev/null || true
 
     const child = spawn(
       '/bin/bash',
-      [scriptPath, targetBinaryPath, downloadedBinaryPath, backupPath, modeOctal, String(targetPid), scriptPath],
+      [scriptPath, targetBinaryPath, downloadedBinaryPath, backupPath, modeOctal, String(targetPid), scriptPath, this.systemdService],
       {
         detached: true,
         stdio: 'ignore',
