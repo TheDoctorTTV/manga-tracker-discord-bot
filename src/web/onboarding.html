@@ -137,7 +137,8 @@ function render() {
   document.getElementById('step3Fields').classList.toggle('hidden', step.index !== 3);
 
   document.getElementById('prevBtn').disabled = step.index <= 1;
-  document.getElementById('saveVerifyBtn').disabled = !step.ready || (step.index > 1 && !step.complete);
+  document.getElementById('saveVerifyBtn').disabled = false;
+  document.getElementById('saveVerifyBtn').textContent = step.index === 1 ? 'Save And Verify' : 'Save Settings';
   document.getElementById('confirmExternalBtn').disabled = !(step.index === 2 || step.index === 3) || !step.ready || step.confirmed;
   document.getElementById('completeBtn').disabled = !Boolean(onboarding.readyToComplete);
 
@@ -209,9 +210,16 @@ document.getElementById('prevBtn').addEventListener('click', async () => {
 
 document.getElementById('saveVerifyBtn').addEventListener('click', async () => {
   try {
+    const step = activeStep();
+    if (!step) return;
     await saveStepEnv();
-    await stepAction('save_and_verify');
-    setStatus('Step verified.', true);
+    await refreshState();
+    if (step.index === 1) {
+      await stepAction('save_and_verify');
+      setStatus('Step verified.', true);
+      return;
+    }
+    setStatus('Settings saved. Complete the external action, then confirm this step.', true);
   } catch (error) {
     setStatus(error.message || String(error), false);
   }

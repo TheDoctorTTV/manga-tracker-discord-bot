@@ -793,8 +793,8 @@ function renderOnboardingStep() {
     (step.blockedReason ? ' • ' + step.blockedReason : '');
 
   prevBtn.disabled = stepIndex <= 1;
-  saveBtn.textContent = stepIndex === 1 ? 'Save And Verify' : 'Verify Step';
-  saveBtn.disabled = !step.ready || (stepIndex > 1 && !step.complete);
+  saveBtn.textContent = stepIndex === 1 ? 'Save And Verify' : 'Save Settings';
+  saveBtn.disabled = false;
   confirmBtn.disabled = !(stepIndex === 2 || stepIndex === 3) || !step.ready || step.confirmed;
   confirmBtn.classList.toggle('success', stepIndex === 2 || stepIndex === 3);
   completeBtn.disabled = !onboarding.readyToComplete;
@@ -1622,11 +1622,15 @@ document.getElementById('onboardingPrevBtn').addEventListener('click', async () 
 document.getElementById('onboardingSaveContinueBtn').addEventListener('click', async () => {
   try {
     const onboarding = getOnboardingStatus();
-    if (Number(onboarding.currentStep || 1) === 1) {
-      await saveEnvConfig({ silent: true });
+    const currentStep = Number(onboarding.currentStep || 1);
+    await saveEnvConfig({ silent: true });
+    if (currentStep === 1) {
+      await runOnboardingStepAction('save_and_verify');
+      setStatus('Step verified.', true);
+      return;
     }
-    await runOnboardingStepAction('save_and_verify');
-    setStatus('Step verified.', true);
+    renderOnboardingStep();
+    setStatus('Settings saved. Complete external action, then confirm this step.', true);
   } catch (error) {
     setStatus(error.message, false);
   }
