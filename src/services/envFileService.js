@@ -19,6 +19,7 @@ const MANAGED_ENV_DEFAULTS = {
   DISCORD_AUTH_CLIENT_SECRET: '',
   DASHBOARD_MANAGED_GUILD_IDS: '',
   DASHBOARD_AUTH_SESSION_HOURS: '12',
+  DASHBOARD_SETUP_COMPLETED: 'false',
 };
 
 const DEFAULT_ENV_FILE_PATH = path.resolve(process.cwd(), '.env');
@@ -136,18 +137,56 @@ function getDashboardAuthConfig(values) {
   };
 }
 
+function getDashboardOnboardingConfig(values, oauthInvite, dashboardAuth) {
+  const botConfigured = Boolean(String(values.DISCORD_TOKEN || '').trim());
+  const botInviteReady = oauthInvite && oauthInvite.source !== 'unavailable';
+  const dashboardAuthReady = Boolean(dashboardAuth && dashboardAuth.configured);
+  const completed = parseBooleanEnv(values.DASHBOARD_SETUP_COMPLETED, false);
+  const missing = [];
+  const hints = [];
+
+  if (!botConfigured) {
+    missing.push('DISCORD_TOKEN');
+    hints.push('Add DISCORD_TOKEN in Settings -> Environment so the bot can run.');
+  }
+  if (!botInviteReady) {
+    missing.push('BOT_INVITE_READY');
+    hints.push('Set bot invite fields (DISCORD_CLIENT_ID or OAUTH_URL) until Bot Invite URL is available.');
+  }
+  if (!dashboardAuthReady) {
+    missing.push('DASHBOARD_AUTH_READY');
+    hints.push(
+      'Set DASHBOARD_PUBLIC_URL, DISCORD_AUTH_CLIENT_ID, DISCORD_AUTH_CLIENT_SECRET, and DASHBOARD_MANAGED_GUILD_IDS.'
+    );
+  }
+
+  return {
+    completed,
+    readiness: {
+      botConfigured,
+      botInviteReady,
+      dashboardAuthReady,
+    },
+    readyToComplete: botConfigured && botInviteReady && dashboardAuthReady,
+    missing,
+    hints,
+  };
+}
+
 function getDashboardEnvConfig() {
   const values = readManagedEnvValues();
   const hasDiscordToken = Boolean(String(values.DISCORD_TOKEN || '').trim());
   const hasDiscordAuthSecret = Boolean(String(values.DISCORD_AUTH_CLIENT_SECRET || '').trim());
   const oauthInvite = resolveDiscordOAuthInvite(values);
   const dashboardAuth = getDashboardAuthConfig(values);
+  const onboarding = getDashboardOnboardingConfig(values, oauthInvite, dashboardAuth);
 
   return {
     envFilePath: ENV_FILE_PATH,
     restartRequired: true,
     oauthInvite,
     dashboardAuth,
+    onboarding,
     values: {
       ...values,
       DISCORD_TOKEN: hasDiscordToken ? REDACTED_TOKEN_PLACEHOLDER : '',
@@ -159,10 +198,13 @@ function getDashboardEnvConfig() {
 
 function getDashboardRuntimeConfig() {
   const values = readManagedEnvValues();
+  const oauthInvite = resolveDiscordOAuthInvite(values);
+  const dashboardAuth = getDashboardAuthConfig(values);
   return {
     values,
-    oauthInvite: resolveDiscordOAuthInvite(values),
-    dashboardAuth: getDashboardAuthConfig(values),
+    oauthInvite,
+    dashboardAuth,
+    onboarding: getDashboardOnboardingConfig(values, oauthInvite, dashboardAuth),
   };
 }
 
@@ -200,10 +242,10 @@ function saveDashboardEnvConfig(nextValues) {
     if (key === 'DISCORD_OAUTH_GUILD_ID' && resolvedValue && !isNumericString(resolvedValue)) {
       throw new Error('DISCORD_OAUTH_GUILD_ID must be empty or a numeric guild ID');
     }
-    if (key === 'DASHBOARD_AUTH_ENABLED') {
+    if (key === 'DASHBOARD_AUTH_ENABLED' || key === 'DASHBOARD_SETUP_COMPLETED') {
       const normalized = resolvedValue.toLowerCase();
       if (resolvedValue && !['1', '0', 'true', 'false', 'yes', 'no', 'on', 'off'].includes(normalized)) {
-        throw new Error('DASHBOARD_AUTH_ENABLED must be true or false');
+        throw new Error(`${key} must be true or false`);
       }
     }
     if (key === 'DASHBOARD_PUBLIC_URL' && resolvedValue) {
@@ -259,6 +301,7 @@ module.exports = {
   REDACTED_SECRET_PLACEHOLDER,
   parseGuildIdList,
   getDashboardAuthConfig,
+  getDashboardOnboardingConfig,
   ensureEnvFile,
   getDashboardEnvConfig,
   getDashboardRuntimeConfig,

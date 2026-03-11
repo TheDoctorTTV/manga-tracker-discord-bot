@@ -429,6 +429,7 @@ function startDashboardServer({ service, updater, botController }) {
         authenticated: access.authenticated,
         authEnabled: access.runtime.dashboardAuth.enabled,
         authConfigured: access.runtime.dashboardAuth.configured,
+        onboarding: access.runtime.onboarding,
         bootstrapMode: access.bootstrapMode,
         reason: access.reason,
         user: access.session ? access.session.user : null,
@@ -533,6 +534,32 @@ function startDashboardServer({ service, updater, botController }) {
         const body = await getRequestBody(req);
         const values = body && typeof body.values === 'object' ? body.values : {};
         sendJson(res, 200, saveDashboardEnvConfig(values));
+        return;
+      }
+
+      if (req.method === 'GET' && pathName === '/api/admin/onboarding/status') {
+        const envConfig = getDashboardEnvConfig();
+        sendJson(res, 200, { onboarding: envConfig.onboarding });
+        return;
+      }
+
+      if (req.method === 'POST' && pathName === '/api/admin/onboarding/complete') {
+        const envConfig = getDashboardEnvConfig();
+        if (!envConfig.onboarding.readyToComplete) {
+          sendJson(res, 400, {
+            error: 'Setup requirements are incomplete.',
+            onboarding: envConfig.onboarding,
+          });
+          return;
+        }
+        const updated = saveDashboardEnvConfig({ DASHBOARD_SETUP_COMPLETED: 'true' });
+        sendJson(res, 200, { onboarding: updated.onboarding });
+        return;
+      }
+
+      if (req.method === 'POST' && pathName === '/api/admin/onboarding/reset') {
+        const updated = saveDashboardEnvConfig({ DASHBOARD_SETUP_COMPLETED: 'false' });
+        sendJson(res, 200, { onboarding: updated.onboarding });
         return;
       }
 

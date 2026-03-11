@@ -357,6 +357,15 @@ button.success:hover { background: linear-gradient(180deg, #3ba674, #2f825d); }
   color: #ffd6dc;
 }
 
+#setupStatusChecklist {
+  margin-top: 8px;
+  line-height: 1.45;
+}
+
+#onboardingReadiness {
+  margin: 8px 0 10px;
+}
+
 pre {
   margin: 0;
   background: #0a1725;

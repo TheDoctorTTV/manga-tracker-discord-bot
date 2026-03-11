@@ -106,3 +106,51 @@ test('rejects malformed DASHBOARD_MANAGED_GUILD_IDS', () => {
     /DASHBOARD_MANAGED_GUILD_IDS/
   );
 });
+
+test('computes onboarding readiness from bot, invite, and auth state', () => {
+  const { service } = loadEnvFileServiceWithTempFile();
+  service.saveDashboardEnvConfig({
+    DISCORD_TOKEN: '',
+    DISCORD_CLIENT_ID: '',
+    DASHBOARD_PUBLIC_URL: '',
+    DISCORD_AUTH_CLIENT_ID: '',
+    DISCORD_AUTH_CLIENT_SECRET: '',
+    DASHBOARD_MANAGED_GUILD_IDS: '',
+    DASHBOARD_SETUP_COMPLETED: 'false',
+  });
+
+  const config = service.getDashboardEnvConfig();
+  assert.equal(config.onboarding.completed, false);
+  assert.equal(config.onboarding.readiness.botConfigured, false);
+  assert.equal(config.onboarding.readiness.botInviteReady, false);
+  assert.equal(config.onboarding.readiness.dashboardAuthReady, false);
+  assert.equal(config.onboarding.readyToComplete, false);
+  assert.deepEqual(config.onboarding.missing, ['DISCORD_TOKEN', 'BOT_INVITE_READY', 'DASHBOARD_AUTH_READY']);
+});
+
+test('persists onboarding completed flag and supports drift state', () => {
+  const { service } = loadEnvFileServiceWithTempFile();
+  service.saveDashboardEnvConfig({
+    DISCORD_TOKEN: 'token',
+    DISCORD_CLIENT_ID: '123456789012345678',
+    DASHBOARD_PUBLIC_URL: 'https://example.com',
+    DISCORD_AUTH_CLIENT_ID: '123456789012345678',
+    DISCORD_AUTH_CLIENT_SECRET: 'secret',
+    DASHBOARD_MANAGED_GUILD_IDS: '111111111111111111',
+    DASHBOARD_SETUP_COMPLETED: 'true',
+  });
+
+  let config = service.getDashboardEnvConfig();
+  assert.equal(config.onboarding.completed, true);
+  assert.equal(config.onboarding.readyToComplete, true);
+
+  service.saveDashboardEnvConfig({
+    DASHBOARD_SETUP_COMPLETED: 'true',
+    DASHBOARD_PUBLIC_URL: '',
+  });
+
+  config = service.getDashboardEnvConfig();
+  assert.equal(config.onboarding.completed, true);
+  assert.equal(config.onboarding.readyToComplete, false);
+  assert.equal(config.onboarding.readiness.dashboardAuthReady, false);
+});
