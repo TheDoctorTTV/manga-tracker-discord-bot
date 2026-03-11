@@ -220,7 +220,7 @@ pre {
     <label>Release Channel</label>
     <select id="releaseMode">
       <option value="release">Release</option>
-      <option value="prerelease">Release + Prerelease</option>
+      <option value="prerelease">Prerelease</option>
     </select>
     <label>Version</label>
     <select id="releaseVersion">
@@ -727,7 +727,7 @@ async function checkForUpdates() {
     state.updater = await api('/api/admin/updater/check', {
       method: 'POST',
       body: JSON.stringify({
-        includePrerelease: state.releaseMode === 'prerelease',
+        releaseMode: state.releaseMode,
         tagName: selectedTag || null,
       }),
     });
@@ -751,7 +751,7 @@ async function applyUpdate() {
       method: 'POST',
       body: JSON.stringify({
         assetName: assetName || null,
-        includePrerelease: state.releaseMode === 'prerelease',
+        releaseMode: state.releaseMode,
         tagName: selectedTag || null,
       }),
     });
@@ -905,14 +905,15 @@ function startDashboardServer({ service, updater }) {
         }
 
         const body = await getRequestBody(req);
-        const includePrerelease = body.includePrerelease === true;
+        const releaseModeRaw = typeof body.releaseMode === 'string' ? body.releaseMode.trim().toLowerCase() : '';
+        const releaseMode = releaseModeRaw === 'prerelease' ? 'prerelease' : 'release';
         const tagName = typeof body.tagName === 'string' ? body.tagName.trim() : '';
 
         updaterState.checking = true;
         updaterState.lastError = null;
-        updaterState.releaseMode = includePrerelease ? 'prerelease' : 'release';
+        updaterState.releaseMode = releaseMode;
         try {
-          updaterState.lastCheck = await updater.checkForUpdate({ includePrerelease, tagName });
+          updaterState.lastCheck = await updater.checkForUpdate({ releaseMode, tagName });
           updaterState.availableReleases = Array.isArray(updaterState.lastCheck.releases) ? updaterState.lastCheck.releases : [];
         } catch (error) {
           updaterState.lastError = error.message;
@@ -937,14 +938,15 @@ function startDashboardServer({ service, updater }) {
 
         const body = await getRequestBody(req);
         const assetName = typeof body.assetName === 'string' ? body.assetName.trim() : '';
-        const includePrerelease = body.includePrerelease === true;
+        const releaseModeRaw = typeof body.releaseMode === 'string' ? body.releaseMode.trim().toLowerCase() : '';
+        const releaseMode = releaseModeRaw === 'prerelease' ? 'prerelease' : 'release';
         const tagName = typeof body.tagName === 'string' ? body.tagName.trim() : '';
 
         updaterState.applying = true;
         updaterState.lastError = null;
-        updaterState.releaseMode = includePrerelease ? 'prerelease' : 'release';
+        updaterState.releaseMode = releaseMode;
         try {
-          updaterState.lastApply = await updater.applyUpdate({ assetName, includePrerelease, tagName });
+          updaterState.lastApply = await updater.applyUpdate({ assetName, releaseMode, tagName });
           updaterState.lastCheck = {
             currentVersion: updaterState.lastApply.fromVersion,
             latestVersion: updaterState.lastApply.toVersion,
