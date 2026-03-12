@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="/dashboard.css" />
 </head>
 <body>
+<a class="skip-link" href="#mainContent">Skip to main content</a>
 <div class="app-shell">
   <aside class="panel sidebar">
     <div class="brand-pill">Admin Console</div>
@@ -15,16 +16,16 @@
       <h1>Manga Tracker</h1>
       <p class="muted">Admin dashboard for bot management and user operations.</p>
     </div>
-    <div class="tabs">
-      <button class="tab-btn active" data-tab="home">Home</button>
-      <button class="tab-btn" data-tab="users">Users</button>
-      <button class="tab-btn" data-tab="settings">Settings</button>
-      <button class="tab-btn" data-tab="about">About</button>
-    </div>
+    <nav class="tabs" aria-label="Dashboard sections" role="tablist">
+      <button id="tab-btn-home" class="tab-btn active" type="button" role="tab" aria-selected="true" aria-controls="tab-home" data-tab="home">Home</button>
+      <button id="tab-btn-users" class="tab-btn" type="button" role="tab" aria-selected="false" aria-controls="tab-users" data-tab="users">Users</button>
+      <button id="tab-btn-settings" class="tab-btn" type="button" role="tab" aria-selected="false" aria-controls="tab-settings" data-tab="settings">Settings</button>
+      <button id="tab-btn-about" class="tab-btn" type="button" role="tab" aria-selected="false" aria-controls="tab-about" data-tab="about">About</button>
+    </nav>
     <small>Users still interact through Discord slash commands.</small>
   </aside>
 
-  <main class="content">
+  <main id="mainContent" class="content" tabindex="-1">
     <div class="panel status-bar">
       <div class="status-copy">
         <strong>Operations Hub</strong>
@@ -38,9 +39,9 @@
         <button id="logoutBtn" type="button">Logout</button>
       </div>
     </div>
-    <div id="setupWarningBanner" class="status err hidden"></div>
+    <div id="setupWarningBanner" class="status err hidden" role="alert"></div>
 
-    <section id="tab-home" class="panel tab-panel">
+    <section id="tab-home" class="panel tab-panel" role="tabpanel" aria-labelledby="tab-btn-home">
     <div class="section-head">
       <h2>Home</h2>
       <small>System health and quick metrics.</small>
@@ -55,70 +56,105 @@
       </div>
       <small id="homeOauthInviteMeta" class="muted"></small>
     </div>
-    <div id="homeMeta" class="muted"></div>
+    <div id="homeMeta" class="muted info-strip"></div>
     </section>
 
-    <section id="tab-users" class="panel tab-panel hidden">
+    <section id="tab-users" class="panel tab-panel hidden" role="tabpanel" aria-labelledby="tab-btn-users">
     <div class="section-head">
       <h2>Users</h2>
       <small>Manage user settings and tracked manga.</small>
     </div>
     <div id="userLayout" class="user-layout">
       <div id="userListPanel" class="user-list-panel">
+        <div class="panel-head">
+          <div>
+            <h3>User Directory</h3>
+            <small>Search and select a Discord user to manage.</small>
+          </div>
+          <button id="refreshUsers" type="button">Refresh</button>
+        </div>
+        <label for="userSearch">Search Users</label>
         <input id="userSearch" placeholder="Search by user id" />
-        <button id="refreshUsers">Refresh</button>
-        <div id="users" class="list"></div>
+        <div id="users" class="list user-grid" role="list" aria-label="Users"></div>
       </div>
       <div id="userDetailPanel" class="user-detail-panel hidden">
         <div class="row detail-head-row">
           <h3 id="selectedUserTitle">Manage user</h3>
           <button id="closeUserDetails" type="button">Back To User List</button>
         </div>
-        <div id="userMeta" class="muted"></div>
+        <div id="userMeta" class="muted info-strip"></div>
 
-        <h3>User Settings</h3>
-        <label>Preferred Source</label>
-        <select id="preferredSource"></select>
-        <label>Auto-check Interval (hours)</label>
-        <input id="autoHours" type="number" min="${MIN_AUTO_CHECK_HOURS}" max="${MAX_AUTO_CHECK_HOURS}" />
-        <div class="row">
-          <button id="saveSettings">Save Settings</button>
-          <button id="deleteUser" class="warn">Delete User</button>
-        </div>
+        <div class="detail-grid">
+          <section class="detail-card">
+            <div class="panel-head">
+              <div>
+                <h3>User Settings</h3>
+                <small>Manage default source and polling cadence.</small>
+              </div>
+            </div>
+            <label for="preferredSource">Preferred Source</label>
+            <select id="preferredSource"></select>
+            <label for="autoHours">Auto-check Interval (hours)</label>
+            <input id="autoHours" type="number" min="${MIN_AUTO_CHECK_HOURS}" max="${MAX_AUTO_CHECK_HOURS}" />
+            <div class="row">
+              <button id="saveSettings">Save Settings</button>
+              <button id="deleteUser" class="warn">Delete User</button>
+            </div>
+          </section>
 
-        <h3>Tracked Manga</h3>
-        <div class="row">
-          <input id="addInput" placeholder="Manga URL, ID, or title" />
-          <select id="addSourceHint"></select>
+          <section class="detail-card">
+            <div class="panel-head">
+              <div>
+                <h3>Tracked Manga</h3>
+                <small>Add or remove tracked entries for this user.</small>
+              </div>
+            </div>
+            <div class="row">
+              <input id="addInput" placeholder="Manga URL, ID, or title" aria-label="Manga URL, ID, or title" />
+              <select id="addSourceHint" aria-label="Source hint"></select>
+            </div>
+            <button id="addTracked">Add Manga</button>
+            <div id="trackedList" class="tracked-grid"></div>
+          </section>
         </div>
-        <button id="addTracked">Add Manga</button>
-        <div id="trackedList"></div>
       </div>
     </div>
     </section>
 
-    <section id="tab-settings" class="panel tab-panel hidden">
+    <section id="tab-settings" class="panel tab-panel hidden" role="tabpanel" aria-labelledby="tab-btn-settings">
     <div class="section-head">
       <h2>Settings</h2>
       <small>Configure sources and runtime environment values.</small>
     </div>
-    <h3>Sources</h3>
-    <small>Add or remove sources used by the bot.</small>
+    <div class="settings-shell">
+      <section class="settings-section">
+        <div class="panel-head">
+          <div>
+            <h3>Sources</h3>
+            <small>Add or remove sources used by the bot.</small>
+          </div>
+        </div>
 
-    <div class="source-row">
-      <label>Default Source</label>
-      <select id="defaultSource"></select>
-    </div>
+        <div class="source-row source-row-static">
+          <label for="defaultSource">Default Source</label>
+          <select id="defaultSource"></select>
+        </div>
 
-    <div id="sourcesList"></div>
-    <div class="row action-row">
-      <button id="addSource">Add Source</button>
-      <button id="saveSources">Save Sources</button>
-    </div>
+        <div id="sourcesList" class="source-grid"></div>
+        <div class="row action-row">
+          <button id="addSource">Add Source</button>
+          <button id="saveSources">Save Sources</button>
+        </div>
+      </section>
 
-    <h3 style="margin-top:12px;">Environment</h3>
-    <small>Saved to the bot environment file. Restart the bot after changing values.</small>
-    <div class="grid two">
+      <section class="settings-section">
+        <div class="panel-head">
+          <div>
+            <h3>Environment</h3>
+            <small>Saved to the bot environment file. Restart the bot after changing values.</small>
+          </div>
+        </div>
+        <div class="grid two">
       <div class="card">
         <strong>DISCORD_TOKEN</strong>
         <input id="envDiscordToken" type="password" placeholder="Bot token" autocomplete="off" />
@@ -154,10 +190,17 @@
         <input id="envDiscordOauthGuildId" placeholder="optional_server_id" />
         <small>If set, invite preselects this server and disables server picker.</small>
       </div>
-    </div>
-    <h3 style="margin-top:12px;">Dashboard Auth</h3>
-    <small>Discord OAuth login for dashboard access control.</small>
-    <div class="grid two">
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <div class="panel-head">
+          <div>
+            <h3>Dashboard Auth</h3>
+            <small>Discord OAuth login for dashboard access control.</small>
+          </div>
+        </div>
+        <div class="grid two">
       <div class="card">
         <strong>DASHBOARD_AUTH_ENABLED</strong>
         <select id="envDashboardAuthEnabled">
@@ -186,16 +229,16 @@
         <strong>DASHBOARD_AUTH_SESSION_HOURS</strong>
         <input id="envDashboardAuthSessionHours" type="number" min="1" max="168" placeholder="12" />
       </div>
-    </div>
-    <div class="card">
+        </div>
+        <div class="card">
       <strong>Computed OAuth Callback URL</strong>
       <input id="envDashboardCallbackUrl" readonly placeholder="Set DASHBOARD_PUBLIC_URL to generate callback URL" />
       <div class="row action-row">
         <button id="copyDashboardCallbackUrl" type="button">Copy Callback URL</button>
       </div>
       <small id="envDashboardCallbackMeta" class="muted">Add this exact URL to Discord Developer Portal -> OAuth2 -> Redirects.</small>
-    </div>
-    <div class="card">
+        </div>
+        <div class="card">
       <strong>Setup Status</strong>
       <div id="setupStatusSummary" class="muted">Loading setup status...</div>
       <div id="setupStatusChecklist" class="muted"></div>
@@ -203,58 +246,78 @@
         <button id="openOnboardingBtn" type="button">Open Onboarding</button>
         <button id="resetOnboardingBtn" class="warn" type="button">Mark Incomplete</button>
       </div>
-    </div>
-    <div id="envMeta" class="muted"></div>
-    <button id="saveEnv">Save Environment</button>
+        </div>
+        <div id="envMeta" class="muted info-strip"></div>
+        <button id="saveEnv">Save Environment</button>
+      </section>
 
-    <h3 style="margin-top:12px;">Bot Runtime</h3>
-    <small>Control the Discord bot process without restarting the dashboard.</small>
-    <div class="card">
+      <section class="settings-section">
+        <div class="panel-head">
+          <div>
+            <h3>Bot Runtime</h3>
+            <small>Control the Discord bot process without restarting the dashboard.</small>
+          </div>
+        </div>
+        <div class="card">
       <strong>Bot Status</strong>
       <div id="botRuntimeStatus" class="muted">Loading...</div>
-    </div>
-    <div class="row action-row">
-      <button id="startBot" class="success">Start Bot</button>
-      <button id="stopBot" class="warn">Stop Bot</button>
-      <button id="restartBot">Restart Bot</button>
+        </div>
+        <div class="row action-row">
+          <button id="startBot" class="success">Start Bot</button>
+          <button id="stopBot" class="warn">Stop Bot</button>
+          <button id="restartBot">Restart Bot</button>
+        </div>
+      </section>
     </div>
     </section>
 
-    <section id="tab-about" class="panel tab-panel hidden">
+    <section id="tab-about" class="panel tab-panel hidden" role="tabpanel" aria-labelledby="tab-btn-about">
     <div class="section-head">
       <h2>About</h2>
       <small>Build metadata and update controls.</small>
     </div>
-    <div class="grid">
+    <div class="grid about-grid">
       <div class="card"><strong>Creator</strong><div id="aboutCreator"></div></div>
       <div class="card"><strong>Version</strong><div id="aboutVersion"></div></div>
       <div class="card"><strong>GitHub Repo</strong><div id="aboutRepo"></div></div>
       <div class="card"><strong>Update System</strong><div id="aboutUpdater"></div></div>
     </div>
 
-    <h3 style="margin-top:12px;">Updater</h3>
-    <small>Checks GitHub Releases and applies binary updates in-place.</small>
-    <label>Release Channel</label>
-    <select id="releaseMode">
-      <option value="release">Release</option>
-      <option value="prerelease">Prerelease</option>
-    </select>
-    <label>Version</label>
-    <select id="releaseVersion"></select>
-    <div class="row">
-      <button id="checkUpdate">Check For Updates</button>
-      <button id="applyUpdate" class="success">Apply Latest Update</button>
-    </div>
-    <div id="updateProgressWrap" class="progress-wrap hidden" aria-live="polite">
-      <div class="progress-label" id="updateProgressLabel">Preparing update...</div>
-      <div class="progress-track">
-        <div id="updateProgressBar" class="progress-bar" style="width:0%"></div>
+    <section class="settings-section" style="margin-top:12px;">
+      <div class="panel-head">
+        <div>
+          <h3>Updater</h3>
+          <small>Checks GitHub Releases and applies binary updates in-place.</small>
+        </div>
       </div>
-    </div>
-    <pre id="updaterOutput" class="updater-output">No updater action yet.</pre>
+      <div class="detail-grid updater-layout">
+        <div class="detail-card">
+          <label for="releaseMode">Release Channel</label>
+          <select id="releaseMode">
+            <option value="release">Release</option>
+            <option value="prerelease">Prerelease</option>
+          </select>
+          <label for="releaseVersion">Version</label>
+          <select id="releaseVersion"></select>
+          <div class="row">
+            <button id="checkUpdate">Check For Updates</button>
+            <button id="applyUpdate" class="success">Apply Latest Update</button>
+          </div>
+        </div>
+        <div class="detail-card">
+          <div id="updateProgressWrap" class="progress-wrap hidden" aria-live="polite">
+            <div class="progress-label" id="updateProgressLabel">Preparing update...</div>
+            <div class="progress-track">
+              <div id="updateProgressBar" class="progress-bar" style="width:0%"></div>
+            </div>
+          </div>
+          <pre id="updaterOutput" class="updater-output">No updater action yet.</pre>
+        </div>
+      </div>
+    </section>
     </section>
 
-    <div id="statusLine" class="status"></div>
+    <div id="statusLine" class="status" role="status" aria-live="polite"></div>
   </main>
 </div>
 
@@ -406,11 +469,19 @@ function switchTab(tabKey) {
   if (!panel) return;
 
   document.querySelectorAll('.tab-btn').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.tab === nextTab);
+    const active = btn.dataset.tab === nextTab;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-selected', active ? 'true' : 'false');
+    btn.tabIndex = active ? 0 : -1;
   });
 
-  document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.add('hidden'));
+  document.querySelectorAll('.tab-panel').forEach((panelEl) => {
+    const isActive = panelEl.id === 'tab-' + nextTab;
+    panelEl.classList.toggle('hidden', !isActive);
+    panelEl.setAttribute('aria-hidden', isActive ? 'false' : 'true');
+  });
   panel.classList.remove('hidden');
+  panel.setAttribute('aria-hidden', 'false');
 
   try {
     localStorage.setItem(TAB_STORAGE_KEY, nextTab);
@@ -468,13 +539,16 @@ function renderUsers() {
   const users = search ? state.users.filter((user) => user.userId.toLowerCase().includes(search)) : state.users;
 
   if (!users.length) {
-    list.innerHTML = '<div class="user-item">No users found.</div>';
+    list.innerHTML = '<div class="user-item" role="listitem" aria-disabled="true">No users found.</div>';
     return;
   }
 
   for (const user of users) {
-    const row = document.createElement('div');
+    const row = document.createElement('button');
     row.className = 'user-item' + (state.selectedUserId === user.userId ? ' active' : '');
+    row.type = 'button';
+    row.setAttribute('role', 'listitem');
+    row.setAttribute('aria-pressed', state.selectedUserId === user.userId ? 'true' : 'false');
     row.innerHTML =
       '<div><strong>' + user.userId + '</strong> <span class="badge">' + user.trackedCount + ' tracked</span></div>' +
       '<small>' + user.preferredSource + ' • every ' + user.autoCheckIntervalHours + 'h' + (user.isLegacy ? ' • legacy fallback' : '') + '</small>';
@@ -571,6 +645,12 @@ function renderSourcesSettings() {
   }
 
   state.sourceDraft.sources.forEach((source, index) => {
+    const keyId = 'source-key-' + index;
+    const adapterId = 'source-adapter-' + index;
+    const enabledId = 'source-enabled-' + index;
+    const displayNameId = 'source-display-name-' + index;
+    const titleUrlId = 'source-title-url-' + index;
+    const hostsId = 'source-hosts-' + index;
     const adapterOptions = state.adapters
       .map((adapterKey) => {
         const selected = adapterKey === (source.adapter || source.key) ? ' selected' : '';
@@ -581,12 +661,12 @@ function renderSourcesSettings() {
     const row = document.createElement('div');
     row.className = 'source-row';
     row.innerHTML =
-      '<label>Key</label><input data-field="key" data-index="' + index + '" value="' + (source.key || '') + '" />' +
-      '<label>Adapter</label><select data-field="adapter" data-index="' + index + '">' + adapterOptions + '</select>' +
-      '<label>Enabled</label><input data-field="enabled" data-index="' + index + '" type="checkbox"' + (source.enabled === false ? '' : ' checked') + ' />' +
-      '<label>Display Name</label><input data-field="displayName" data-index="' + index + '" value="' + (source.displayName || '') + '" />' +
-      '<label>Title URL</label><input data-field="titleUrl" data-index="' + index + '" value="' + (source.titleUrl || '') + '" />' +
-      '<label>Hosts (comma separated)</label><input data-field="hosts" data-index="' + index + '" value="' + (Array.isArray(source.hosts) ? source.hosts.join(', ') : '') + '" />';
+      '<div><label for="' + keyId + '">Key</label><input id="' + keyId + '" data-field="key" data-index="' + index + '" value="' + (source.key || '') + '" /></div>' +
+      '<div><label for="' + adapterId + '">Adapter</label><select id="' + adapterId + '" data-field="adapter" data-index="' + index + '">' + adapterOptions + '</select></div>' +
+      '<div><label for="' + enabledId + '">Enabled</label><input id="' + enabledId + '" data-field="enabled" data-index="' + index + '" type="checkbox"' + (source.enabled === false ? '' : ' checked') + ' /></div>' +
+      '<div><label for="' + displayNameId + '">Display Name</label><input id="' + displayNameId + '" data-field="displayName" data-index="' + index + '" value="' + (source.displayName || '') + '" /></div>' +
+      '<div><label for="' + titleUrlId + '">Title URL</label><input id="' + titleUrlId + '" data-field="titleUrl" data-index="' + index + '" value="' + (source.titleUrl || '') + '" /></div>' +
+      '<div><label for="' + hostsId + '">Hosts (comma separated)</label><input id="' + hostsId + '" data-field="hosts" data-index="' + index + '" value="' + (Array.isArray(source.hosts) ? source.hosts.join(', ') : '') + '" /></div>';
 
     const removeBtn = document.createElement('button');
     removeBtn.className = 'warn';
