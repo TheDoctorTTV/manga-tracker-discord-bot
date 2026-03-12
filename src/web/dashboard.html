@@ -428,6 +428,7 @@ const state = {
   activeGuildId: '',
   managedGuildIds: [],
   activeTab: FALLBACK_TAB,
+  preferredTab: FALLBACK_TAB,
   lastHomeRefreshAt: 0,
   lastAboutRefreshAt: 0,
   liveRefreshTimer: null,
@@ -556,8 +557,8 @@ function withGuildPath(path) {
 function switchTab(tabKey, { persist = true } = {}) {
   const requestedTab = String(tabKey || '').trim().toLowerCase();
   const nextTab = getResolvedActiveTab(requestedTab);
-  const onboarding = getOnboardingStatus();
-  if (requestedTab !== nextTab) {
+  const showLockedMessage = persist;
+  if (showLockedMessage && requestedTab !== nextTab) {
     setStatus('Finish onboarding in Settings before using this tab.', false);
   }
   const panel = document.getElementById('tab-' + nextTab);
@@ -578,6 +579,9 @@ function switchTab(tabKey, { persist = true } = {}) {
   panel.classList.remove('hidden');
   panel.setAttribute('aria-hidden', 'false');
   state.activeTab = nextTab;
+  if (VALID_TABS.includes(requestedTab)) {
+    state.preferredTab = requestedTab;
+  }
 
   if (persist) {
     try {
@@ -1751,7 +1755,7 @@ async function resetOnboarding() {
 }
 
 async function refreshAll() {
-  const preferredTab = getResolvedActiveTab(state.activeTab || readStoredTab());
+  const preferredTab = state.preferredTab || readStoredTab();
   await refreshAuthState();
   await refreshEnvConfig();
   const onboarding = getOnboardingStatus();
@@ -1932,9 +1936,10 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
 (async () => {
   try {
     try {
-      state.activeTab = readStoredTab();
-      switchTab(state.activeTab, { persist: false });
+      state.preferredTab = readStoredTab();
+      switchTab(state.preferredTab, { persist: false });
     } catch {
+      state.preferredTab = FALLBACK_TAB;
       state.activeTab = FALLBACK_TAB;
       switchTab(FALLBACK_TAB, { persist: false });
     }
