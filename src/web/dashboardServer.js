@@ -23,6 +23,7 @@ const {
   buildDiscordLoginUrl,
   exchangeDiscordCode,
   fetchDiscordIdentity,
+  computeAdminGuilds,
   computeAllowedGuilds,
 } = require('../services/dashboardAuthService');
 
@@ -368,7 +369,7 @@ function startDashboardServer({ service, updater, botController }) {
 
   async function resolveManageableGuilds(access) {
     const fallbackGuilds = access.session
-      ? access.session.allowedGuilds || []
+      ? access.session.adminGuilds || access.session.allowedGuilds || []
       : access.runtime.dashboardAuth.managedGuildIds.map((guildId) => ({ id: guildId, name: guildId }));
     const allowedGuildIds = fallbackGuilds.map((guild) => guild.id);
     if (!botController || typeof botController.getAccessibleGuilds !== 'function') {
@@ -534,6 +535,7 @@ function startDashboardServer({ service, updater, botController }) {
         if (!accessToken) throw new Error('Discord token exchange failed');
 
         const identity = await fetchDiscordIdentity(accessToken);
+        const adminGuilds = computeAdminGuilds(identity.guilds);
         const allowedGuilds = computeAllowedGuilds({
           guilds: identity.guilds,
           managedGuildIds: runtime.dashboardAuth.managedGuildIds,
@@ -559,6 +561,7 @@ function startDashboardServer({ service, updater, botController }) {
             globalName: identity.user?.global_name || null,
             avatar: identity.user?.avatar || null,
           },
+          adminGuilds,
           allowedGuildIds,
           allowedGuilds,
           createdAt: now,
@@ -608,6 +611,7 @@ function startDashboardServer({ service, updater, botController }) {
         user: access.session ? access.session.user : null,
         allowedGuildIds: access.session ? access.session.allowedGuildIds : access.runtime.dashboardAuth.managedGuildIds,
         allowedGuilds: access.session ? access.session.allowedGuilds || [] : access.runtime.dashboardAuth.managedGuildIds.map((guildId) => ({ id: guildId, name: guildId })),
+        adminGuilds: access.session ? access.session.adminGuilds || [] : [],
         manageableGuilds,
         managedGuildIds: access.runtime.dashboardAuth.managedGuildIds,
         defaultGuildId: access.runtime.dashboardAuth.managedGuildIds[0] || null,

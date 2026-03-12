@@ -60,7 +60,8 @@
         </div>
         <div class="card">
           <strong>DASHBOARD_MANAGED_GUILD_IDS</strong>
-          <input id="envDashboardManagedGuildIds" placeholder="111111111111111111,222222222222222222" />
+          <select id="envDashboardManagedGuildIds" multiple size="6"></select>
+          <small id="envDashboardManagedGuildIdsHelp">Select the servers this dashboard should manage.</small>
         </div>
         <div class="card" style="grid-column: 1 / -1;">
           <strong>Computed OAuth Callback URL</strong>
@@ -88,7 +89,81 @@
 const state = {
   envConfig: null,
   onboarding: null,
+  auth: null,
 };
+
+function createOption(value, label) {
+  const option = document.createElement('option');
+  option.value = value;
+  option.textContent = label;
+  return option;
+}
+
+function parseGuildIdCsv(value) {
+  return Array.from(
+    new Set(
+      String(value || '')
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function getSelectedValues(select) {
+  if (!select) return [];
+  return Array.from(select.selectedOptions || [])
+    .map((option) => String(option.value || '').trim())
+    .filter(Boolean);
+}
+
+function renderManagedGuildOptions() {
+  const select = document.getElementById('envDashboardManagedGuildIds');
+  const help = document.getElementById('envDashboardManagedGuildIdsHelp');
+  const values = state.envConfig && state.envConfig.values ? state.envConfig.values : {};
+  const configuredGuildIds = parseGuildIdCsv(values.DASHBOARD_MANAGED_GUILD_IDS || '');
+  const manageableGuilds = Array.isArray(state.auth && state.auth.manageableGuilds) ? state.auth.manageableGuilds : [];
+  const guildOptions = [];
+  const seen = new Set();
+
+  for (const guild of manageableGuilds) {
+    const guildId = String((guild && guild.id) || '').trim();
+    if (!guildId || seen.has(guildId)) continue;
+    seen.add(guildId);
+    guildOptions.push({
+      id: guildId,
+      name: String((guild && guild.name) || '').trim() || guildId,
+    });
+  }
+
+  for (const guildId of configuredGuildIds) {
+    if (seen.has(guildId)) continue;
+    seen.add(guildId);
+    guildOptions.push({ id: guildId, name: guildId });
+  }
+
+  select.replaceChildren(
+    ...(guildOptions.length > 0
+      ? guildOptions.map((guild) => {
+          const option = createOption(guild.id, guild.name);
+          option.selected = configuredGuildIds.includes(guild.id);
+          return option;
+        })
+      : [createOption('', 'No accessible bot guilds available')])
+  );
+  select.disabled = guildOptions.length === 0;
+  help.textContent =
+    guildOptions.length > 0
+      ? 'Select one or more servers. Only servers the current admin can access are shown.'
+      : 'No bot-accessible servers are available right now. Start the bot or sign in with Discord to load server choices.';
+}
+
+function getManagedGuildIdsForSave() {
+  const select = document.getElementById('envDashboardManagedGuildIds');
+  const selected = getSelectedValues(select);
+  if (selected.length > 0 || !select || !select.disabled) return selected.join(',');
+  return String((state.envConfig && state.envConfig.values && state.envConfig.values.DASHBOARD_MANAGED_GUILD_IDS) || '').trim();
+}
 
 function setStatus(message, ok = true) {
   const el = document.getElementById('statusLine');
@@ -169,14 +244,14 @@ function render() {
   document.getElementById('envDashboardPublicUrl').value = values.DASHBOARD_PUBLIC_URL || '';
   document.getElementById('envDiscordAuthClientId').value = values.DISCORD_AUTH_CLIENT_ID || '';
   document.getElementById('envDiscordAuthClientSecret').value = values.DISCORD_AUTH_CLIENT_SECRET || '';
-  document.getElementById('envDashboardManagedGuildIds').value = values.DASHBOARD_MANAGED_GUILD_IDS || '';
+  renderManagedGuildOptions();
   document.getElementById('inviteUrl').value = (state.envConfig && state.envConfig.oauthInvite && state.envConfig.oauthInvite.url) || '';
   document.getElementById('callbackUrl').value = (state.envConfig && state.envConfig.dashboardAuth && state.envConfig.dashboardAuth.callbackUrl) || '';
 }
 
 async function refreshState() {
-  const auth = await api('/api/admin/auth/me');
-  if (!auth.authenticated && !auth.bootstrapMode) {
+  state.auth = await api('/api/admin/auth/me');
+  if (!state.auth.authenticated && !state.auth.bootstrapMode) {
     window.location.replace('/login');
     return;
   }
@@ -202,7 +277,7 @@ async function saveStepEnv() {
     values.DASHBOARD_PUBLIC_URL = document.getElementById('envDashboardPublicUrl').value;
     values.DISCORD_AUTH_CLIENT_ID = document.getElementById('envDiscordAuthClientId').value;
     values.DISCORD_AUTH_CLIENT_SECRET = document.getElementById('envDiscordAuthClientSecret').value;
-    values.DASHBOARD_MANAGED_GUILD_IDS = document.getElementById('envDashboardManagedGuildIds').value;
+    values.DASHBOARD_MANAGED_GUILD_IDS = getManagedGuildIdsForSave();
   }
   state.envConfig = await api('/api/admin/env', {
     method: 'PUT',

@@ -364,6 +364,42 @@ textarea:hover {
   border-color: #2d4362;
 }
 
+select[multiple] {
+  min-height: 180px;
+  padding: 8px;
+  background:
+    linear-gradient(180deg, rgba(20, 34, 58, 0.98), rgba(9, 19, 40, 0.98));
+  border-color: #2b4670;
+  box-shadow:
+    inset 0 0 0 1px rgba(85, 138, 222, 0.14),
+    0 10px 24px rgba(0, 0, 0, 0.22);
+  scrollbar-color: #557fbf rgba(8, 18, 36, 0.85);
+}
+
+select[multiple] option {
+  margin: 0 0 6px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: rgba(16, 30, 54, 0.92);
+  color: var(--text-soft);
+}
+
+select[multiple] option:last-child {
+  margin-bottom: 0;
+}
+
+select[multiple] option:checked {
+  background: linear-gradient(180deg, #9fc6ff, #74aef9);
+  color: #0a1b36;
+  border-color: #bfd9ff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45);
+}
+
+select[multiple]:focus {
+  border-color: #4d84d6;
+}
+
 input[type="checkbox"] {
   width: 18px;
   min-height: 18px;

@@ -1,6 +1,6 @@
 {
   "name": "discord-manga-tracker",
-  "version": "1.0.0-pr24",
+  "version": "1.0.0-pr25",
   "description": "A Discord bot that tracks manga updates from MangaDex for users.",
   "main": "src/app.js",
   "engines": {

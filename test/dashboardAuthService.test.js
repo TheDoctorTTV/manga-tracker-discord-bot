@@ -1,6 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { hasAdministratorPermission, computeAllowedGuildIds, computeAllowedGuilds } = require('../src/services/dashboardAuthService');
+const {
+  hasAdministratorPermission,
+  computeAdminGuilds,
+  computeAllowedGuildIds,
+  computeAllowedGuilds,
+} = require('../src/services/dashboardAuthService');
 
 test('detects administrator permission bit', () => {
   assert.equal(hasAdministratorPermission('8'), true);
@@ -31,4 +36,17 @@ test('returns allowed guild metadata for dashboard display', () => {
   });
 
   assert.deepEqual(allowed, [{ id: '333', name: 'Gamma' }]);
+});
+
+test('returns all administrator guilds for guild selection', () => {
+  const adminGuilds = computeAdminGuilds([
+    { id: '111', name: 'Alpha', permissions: '8' },
+    { id: '222', name: 'Beta', permissions: '32' },
+    { id: '333', name: 'Gamma', permissions: '8' },
+  ]);
+
+  assert.deepEqual(adminGuilds, [
+    { id: '111', name: 'Alpha' },
+    { id: '333', name: 'Gamma' },
+  ]);
 });

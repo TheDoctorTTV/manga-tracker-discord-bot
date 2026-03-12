@@ -64,16 +64,21 @@ function computeAllowedGuildIds({ guilds, managedGuildIds }) {
   return computeAllowedGuilds({ guilds, managedGuildIds }).map((guild) => guild.id);
 }
 
-function computeAllowedGuilds({ guilds, managedGuildIds }) {
-  const adminGuilds = guilds.filter((guild) => hasAdministratorPermission(guild.permissions));
-  if (!Array.isArray(managedGuildIds) || managedGuildIds.length === 0) return [];
-  const managed = new Set(managedGuildIds);
-  return adminGuilds
-    .filter((guild) => managed.has(guild.id))
+function computeAdminGuilds(guilds) {
+  return (Array.isArray(guilds) ? guilds : [])
+    .filter((guild) => hasAdministratorPermission(guild.permissions))
     .map((guild) => ({
       id: String(guild.id || '').trim(),
       name: String(guild.name || '').trim() || String(guild.id || '').trim(),
-    }));
+    }))
+    .filter((guild) => guild.id);
+}
+
+function computeAllowedGuilds({ guilds, managedGuildIds }) {
+  const adminGuilds = computeAdminGuilds(guilds);
+  if (!Array.isArray(managedGuildIds) || managedGuildIds.length === 0) return [];
+  const managed = new Set(managedGuildIds);
+  return adminGuilds.filter((guild) => managed.has(guild.id));
 }
 
 module.exports = {
@@ -83,6 +88,7 @@ module.exports = {
   buildDiscordLoginUrl,
   exchangeDiscordCode,
   fetchDiscordIdentity,
+  computeAdminGuilds,
   computeAllowedGuilds,
   computeAllowedGuildIds,
 };
