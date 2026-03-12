@@ -590,6 +590,19 @@ function switchTab(tabKey, { persist = true } = {}) {
   }
 }
 
+function clearTabSelection() {
+  document.querySelectorAll('.tab-btn').forEach((btn) => {
+    btn.classList.remove('active');
+    btn.setAttribute('aria-selected', 'false');
+    btn.tabIndex = -1;
+  });
+
+  document.querySelectorAll('.tab-panel').forEach((panelEl) => {
+    panelEl.classList.add('hidden');
+    panelEl.setAttribute('aria-hidden', 'true');
+  });
+}
+
 function renderHome() {
   const container = document.getElementById('homeCards');
   replaceChildren(container, []);
@@ -1935,13 +1948,12 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
 
 (async () => {
   try {
+    clearTabSelection();
     try {
       state.preferredTab = readStoredTab();
-      switchTab(state.preferredTab, { persist: false });
     } catch {
       state.preferredTab = FALLBACK_TAB;
       state.activeTab = FALLBACK_TAB;
-      switchTab(FALLBACK_TAB, { persist: false });
     }
     await refreshAuthState();
     if (!state.auth.authenticated) {
