@@ -184,37 +184,45 @@
         </div>
         <div class="grid two">
       <div class="card">
-        <strong>DISCORD_TOKEN</strong>
+        <strong>Bot Token</strong>
+        <small class="setting-key">DISCORD_TOKEN</small>
         <input id="envDiscordToken" type="password" placeholder="Bot token" autocomplete="off" />
         <small>Redacted after save. Stored unredacted only in the env file on disk.</small>
       </div>
       <div class="card">
-        <strong>DASHBOARD_HOST</strong>
+        <strong>Dashboard Host</strong>
+        <small class="setting-key">DASHBOARD_HOST</small>
         <input id="envDashboardHost" placeholder="0.0.0.0" />
       </div>
       <div class="card">
-        <strong>DASHBOARD_PORT</strong>
+        <strong>Dashboard Port</strong>
+        <small class="setting-key">DASHBOARD_PORT</small>
         <input id="envDashboardPort" type="number" min="1" max="65535" placeholder="9898" />
       </div>
       <div class="card">
-        <strong>OAUTH_URL</strong>
+        <strong>Bot Invite URL Override</strong>
+        <small class="setting-key">OAUTH_URL</small>
         <input id="envOauthUrl" placeholder="discord_oauth_url" />
         <small>Manual override. If set, this exact URL is used.</small>
       </div>
       <div class="card">
-        <strong>DISCORD_CLIENT_ID</strong>
+        <strong>Discord Application ID</strong>
+        <small class="setting-key">DISCORD_CLIENT_ID</small>
         <input id="envDiscordClientId" placeholder="123456789012345678" />
       </div>
       <div class="card">
-        <strong>DISCORD_OAUTH_SCOPES</strong>
+        <strong>Bot Invite Scopes</strong>
+        <small class="setting-key">DISCORD_OAUTH_SCOPES</small>
         <input id="envDiscordOauthScopes" placeholder="bot applications.commands" />
       </div>
       <div class="card">
-        <strong>DISCORD_OAUTH_PERMISSIONS</strong>
+        <strong>Bot Invite Permissions</strong>
+        <small class="setting-key">DISCORD_OAUTH_PERMISSIONS</small>
         <input id="envDiscordOauthPermissions" placeholder="0" />
       </div>
       <div class="card">
-        <strong>DISCORD_OAUTH_GUILD_ID</strong>
+        <strong>Preferred Invite Server</strong>
+        <small class="setting-key">DISCORD_OAUTH_GUILD_ID</small>
         <input id="envDiscordOauthGuildId" placeholder="optional_server_id" />
         <small>If set, invite preselects this server and disables server picker.</small>
       </div>
@@ -230,31 +238,37 @@
         </div>
         <div class="grid two">
       <div class="card">
-        <strong>DASHBOARD_AUTH_ENABLED</strong>
+        <strong>Dashboard Login Enabled</strong>
+        <small class="setting-key">DASHBOARD_AUTH_ENABLED</small>
         <select id="envDashboardAuthEnabled">
           <option value="false">false</option>
           <option value="true">true</option>
         </select>
       </div>
       <div class="card">
-        <strong>DASHBOARD_PUBLIC_URL</strong>
+        <strong>Dashboard Public URL</strong>
+        <small class="setting-key">DASHBOARD_PUBLIC_URL</small>
         <input id="envDashboardPublicUrl" placeholder="https://your-hostname:9898" />
         <small>Single active dashboard base URL used for OAuth callback generation.</small>
       </div>
       <div class="card">
-        <strong>DISCORD_AUTH_CLIENT_ID</strong>
+        <strong>Dashboard OAuth Client ID</strong>
+        <small class="setting-key">DISCORD_AUTH_CLIENT_ID</small>
         <input id="envDiscordAuthClientId" placeholder="123456789012345678" />
       </div>
       <div class="card">
-        <strong>DISCORD_AUTH_CLIENT_SECRET</strong>
+        <strong>Dashboard OAuth Client Secret</strong>
+        <small class="setting-key">DISCORD_AUTH_CLIENT_SECRET</small>
         <input id="envDiscordAuthClientSecret" type="password" placeholder="Discord OAuth client secret" autocomplete="off" />
       </div>
       <div class="card">
-        <strong>DASHBOARD_MANAGED_GUILD_IDS</strong>
+        <strong>Managed Server IDs</strong>
+        <small class="setting-key">DASHBOARD_MANAGED_GUILD_IDS</small>
         <input id="envDashboardManagedGuildIds" placeholder="111111111111111111,222222222222222222" />
       </div>
       <div class="card">
-        <strong>DASHBOARD_AUTH_SESSION_HOURS</strong>
+        <strong>Session Length (Hours)</strong>
+        <small class="setting-key">DASHBOARD_AUTH_SESSION_HOURS</small>
         <input id="envDashboardAuthSessionHours" type="number" min="1" max="168" placeholder="12" />
       </div>
         </div>
@@ -427,6 +441,7 @@ const state = {
   auth: null,
   activeGuildId: '',
   managedGuildIds: [],
+  guildNamesById: {},
   activeTab: FALLBACK_TAB,
   preferredTab: FALLBACK_TAB,
   lastHomeRefreshAt: 0,
@@ -481,6 +496,22 @@ function createOption(value, label) {
   option.value = value;
   option.textContent = label;
   return option;
+}
+
+function createMetricChip(label, value) {
+  const chip = document.createElement('div');
+  chip.className = 'metric-chip';
+  chip.append(
+    createTextNodeElement('span', label, 'metric-label'),
+    createTextNodeElement('span', value, 'metric-value')
+  );
+  return chip;
+}
+
+function getGuildLabel(guildId) {
+  const normalized = String(guildId || '').trim();
+  if (!normalized) return '';
+  return state.guildNamesById[normalized] || normalized;
 }
 
 function clearSelectedUserView() {
@@ -646,8 +677,11 @@ function renderHome() {
   copyBtn.disabled = !hasUrl;
   openBtn.disabled = !hasUrl;
 
-  document.getElementById('homeMeta').textContent =
-    'Guild: ' + (state.activeGuildId || 'n/a') + ' • Uptime: ' + state.home.uptimeHuman + ' • Memory RSS: ' + state.home.memoryRssMb + ' MB';
+  replaceChildren(document.getElementById('homeMeta'), [
+    createMetricChip('Active Guild', getGuildLabel(state.activeGuildId) || 'n/a'),
+    createMetricChip('Uptime', state.home.uptimeHuman),
+    createMetricChip('Memory RSS', state.home.memoryRssMb + ' MB'),
+  ]);
   document.getElementById('homeLiveMeta').textContent = formatLiveTimestamp(state.lastHomeRefreshAt);
 }
 
@@ -1103,7 +1137,7 @@ function renderGuildSelector() {
   for (const guildId of guildIds) {
     const option = document.createElement('option');
     option.value = guildId;
-    option.textContent = guildId;
+    option.textContent = getGuildLabel(guildId);
     select.appendChild(option);
   }
 
@@ -1270,6 +1304,13 @@ function hideAuthGate() {
 async function refreshAuthState() {
   state.auth = await api('/api/admin/auth/me');
   state.managedGuildIds = Array.isArray(state.auth.allowedGuildIds) ? state.auth.allowedGuildIds : [];
+  state.guildNamesById = {};
+  const allowedGuilds = Array.isArray(state.auth.allowedGuilds) ? state.auth.allowedGuilds : [];
+  for (const guild of allowedGuilds) {
+    const guildId = String(guild && guild.id || '').trim();
+    if (!guildId) continue;
+    state.guildNamesById[guildId] = String(guild && guild.name || '').trim() || guildId;
+  }
   renderGuildSelector();
   renderSetupStatusCard();
 }

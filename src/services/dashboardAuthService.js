@@ -61,10 +61,19 @@ async function fetchDiscordIdentity(accessToken) {
 }
 
 function computeAllowedGuildIds({ guilds, managedGuildIds }) {
-  const adminGuildIds = guilds.filter((guild) => hasAdministratorPermission(guild.permissions)).map((guild) => guild.id);
+  return computeAllowedGuilds({ guilds, managedGuildIds }).map((guild) => guild.id);
+}
+
+function computeAllowedGuilds({ guilds, managedGuildIds }) {
+  const adminGuilds = guilds.filter((guild) => hasAdministratorPermission(guild.permissions));
   if (!Array.isArray(managedGuildIds) || managedGuildIds.length === 0) return [];
   const managed = new Set(managedGuildIds);
-  return adminGuildIds.filter((guildId) => managed.has(guildId));
+  return adminGuilds
+    .filter((guild) => managed.has(guild.id))
+    .map((guild) => ({
+      id: String(guild.id || '').trim(),
+      name: String(guild.name || '').trim() || String(guild.id || '').trim(),
+    }));
 }
 
 module.exports = {
@@ -74,5 +83,6 @@ module.exports = {
   buildDiscordLoginUrl,
   exchangeDiscordCode,
   fetchDiscordIdentity,
+  computeAllowedGuilds,
   computeAllowedGuildIds,
 };

@@ -289,6 +289,8 @@ code {
 .live-meta {
   text-align: right;
   white-space: normal;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
 }
 
 .grid {
@@ -312,6 +314,15 @@ code {
 .detail-card strong {
   display: inline-block;
   margin-bottom: 8px;
+}
+
+.setting-key {
+  display: block;
+  margin: -4px 0 8px;
+  color: #7f93b5;
+  font-size: 11px;
+  font-family: Consolas, "Courier New", monospace;
+  letter-spacing: 0.04em;
 }
 
 .value {
@@ -665,6 +676,37 @@ button.warn:hover {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--card-2);
+}
+
+#homeMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.metric-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card-3);
+  min-width: 0;
+}
+
+.metric-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.metric-value {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
 }
 
 .hidden {

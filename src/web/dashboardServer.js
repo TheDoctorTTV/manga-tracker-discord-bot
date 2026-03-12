@@ -23,7 +23,7 @@ const {
   buildDiscordLoginUrl,
   exchangeDiscordCode,
   fetchDiscordIdentity,
-  computeAllowedGuildIds,
+  computeAllowedGuilds,
 } = require('../services/dashboardAuthService');
 
 const DASHBOARD_SESSION_COOKIE = 'dashboard_session';
@@ -491,10 +491,11 @@ function startDashboardServer({ service, updater, botController }) {
         if (!accessToken) throw new Error('Discord token exchange failed');
 
         const identity = await fetchDiscordIdentity(accessToken);
-        const allowedGuildIds = computeAllowedGuildIds({
+        const allowedGuilds = computeAllowedGuilds({
           guilds: identity.guilds,
           managedGuildIds: runtime.dashboardAuth.managedGuildIds,
         });
+        const allowedGuildIds = allowedGuilds.map((guild) => guild.id);
 
         if (allowedGuildIds.length === 0) {
           clearCookie(res, DASHBOARD_OAUTH_STATE_COOKIE);
@@ -516,6 +517,7 @@ function startDashboardServer({ service, updater, botController }) {
             avatar: identity.user?.avatar || null,
           },
           allowedGuildIds,
+          allowedGuilds,
           createdAt: now,
           expiresAt: now + maxAgeSeconds * 1000,
         });
@@ -561,6 +563,7 @@ function startDashboardServer({ service, updater, botController }) {
         reason: access.reason,
         user: access.session ? access.session.user : null,
         allowedGuildIds: access.session ? access.session.allowedGuildIds : access.runtime.dashboardAuth.managedGuildIds,
+        allowedGuilds: access.session ? access.session.allowedGuilds || [] : access.runtime.dashboardAuth.managedGuildIds.map((guildId) => ({ id: guildId, name: guildId })),
         managedGuildIds: access.runtime.dashboardAuth.managedGuildIds,
         defaultGuildId: access.runtime.dashboardAuth.managedGuildIds[0] || null,
       });
@@ -614,8 +617,12 @@ function startDashboardServer({ service, updater, botController }) {
 
       if (req.method === 'GET' && pathName === '/api/admin/guilds') {
         const guildIds = access.session ? access.session.allowedGuildIds : access.runtime.dashboardAuth.managedGuildIds;
+        const guilds = access.session
+          ? access.session.allowedGuilds || guildIds.map((guildId) => ({ id: guildId, name: guildId }))
+          : guildIds.map((guildId) => ({ id: guildId, name: guildId }));
         sendJson(res, 200, {
           guildIds,
+          guilds,
           defaultGuildId: guildIds[0] || null,
         });
         return;
