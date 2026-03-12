@@ -1,0 +1,2036 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Manga Tracker Admin Dashboard</title>
+<link rel="icon" href="/favicon.ico" />
+<link rel="stylesheet" href="/dashboard.css" />
+</head>
+<body class="dashboard-page">
+<a class="skip-link" href="#mainContent">Skip to main content</a>
+<div class="app-shell">
+  <aside class="panel sidebar">
+    <div class="brand-pill">Admin Console</div>
+    <div class="title-block">
+      <h1>Manga Tracker</h1>
+      <p class="muted">Admin dashboard for bot management and user operations.</p>
+    </div>
+    <nav class="tabs" aria-label="Dashboard sections" role="tablist">
+      <button id="tab-btn-home" class="tab-btn active" type="button" role="tab" aria-selected="true" aria-controls="tab-home" data-tab="home">Home</button>
+      <button id="tab-btn-users" class="tab-btn" type="button" role="tab" aria-selected="false" aria-controls="tab-users" data-tab="users">Users</button>
+      <button id="tab-btn-settings" class="tab-btn" type="button" role="tab" aria-selected="false" aria-controls="tab-settings" data-tab="settings">Settings</button>
+      <button id="tab-btn-about" class="tab-btn" type="button" role="tab" aria-selected="false" aria-controls="tab-about" data-tab="about">About</button>
+    </nav>
+    <small>Users still interact through Discord slash commands.</small>
+  </aside>
+
+  <main id="mainContent" class="content" tabindex="-1">
+    <div class="panel status-bar">
+      <div class="status-copy">
+        <strong>Operations Hub</strong>
+        <div class="muted">Live controls for sources, tracking, and updater state.</div>
+      </div>
+      <div class="row status-actions">
+        <div>
+          <label for="activeGuildSelect">Active Guild</label>
+          <select id="activeGuildSelect"></select>
+        </div>
+        <button id="logoutBtn" type="button">Logout</button>
+      </div>
+    </div>
+    <div id="setupWarningBanner" class="status err hidden" role="alert"></div>
+
+    <section id="tab-home" class="panel tab-panel" role="tabpanel" aria-labelledby="tab-btn-home">
+    <div class="section-head">
+      <div>
+        <h2>Home</h2>
+        <small>System health and quick metrics.</small>
+      </div>
+      <small id="homeLiveMeta" class="live-meta">Waiting for live data...</small>
+    </div>
+    <div class="grid two" id="homeCards"></div>
+    <div class="card" style="margin-top:12px;">
+      <strong>Bot Invite URL</strong>
+      <input id="homeOauthInviteUrl" readonly placeholder="Invite URL will appear here" />
+      <div class="row action-row">
+        <button id="copyInviteUrl" type="button">Copy Invite URL</button>
+        <button id="openInviteUrl" type="button">Open Invite URL</button>
+      </div>
+      <small id="homeOauthInviteMeta" class="muted"></small>
+    </div>
+    <div id="homeMeta" class="muted info-strip"></div>
+    </section>
+
+    <section id="tab-users" class="panel tab-panel hidden" role="tabpanel" aria-labelledby="tab-btn-users">
+    <div class="section-head">
+      <h2>Users</h2>
+      <small>Manage user settings and tracked manga.</small>
+    </div>
+    <div id="userLayout" class="user-layout">
+      <div id="userListPanel" class="user-list-panel">
+        <div class="panel-head">
+          <div>
+            <h3>User Directory</h3>
+            <small>Search and select a Discord user to manage.</small>
+          </div>
+          <button id="refreshUsers" type="button">Refresh</button>
+        </div>
+        <label for="userSearch">Search Users</label>
+        <input id="userSearch" placeholder="Search by user name or id" />
+        <div id="users" class="list user-grid" role="list" aria-label="Users"></div>
+      </div>
+      <div id="userDetailPanel" class="user-detail-panel hidden">
+        <div class="row detail-head-row">
+          <h3 id="selectedUserTitle">Manage user</h3>
+          <button id="closeUserDetails" type="button">Back To User List</button>
+        </div>
+      <div id="userMeta" class="muted info-strip"></div>
+
+        <div class="user-hero">
+          <div class="hero-copy">
+            <strong>Operator Workspace</strong>
+            <small>Pick a user on the left, then edit defaults and tracked manga in modular cards.</small>
+          </div>
+          <div class="hero-chip-row">
+            <span class="hero-chip">Searchable directory</span>
+            <span class="hero-chip">Card-based editor</span>
+          </div>
+        </div>
+
+        <div class="detail-grid">
+          <section class="detail-card">
+            <div class="panel-head">
+              <div>
+                <h3>User Settings</h3>
+                <small>Manage default source and polling cadence.</small>
+              </div>
+            </div>
+            <label for="preferredSource">Preferred Source</label>
+            <select id="preferredSource"></select>
+            <label for="autoHours">Auto-check Interval (hours)</label>
+            <input id="autoHours" type="number" min="${MIN_AUTO_CHECK_HOURS}" max="${MAX_AUTO_CHECK_HOURS}" />
+            <div class="row">
+              <button id="saveSettings">Save Settings</button>
+              <button id="deleteUser" class="warn">Delete User</button>
+            </div>
+          </section>
+
+          <section class="detail-card">
+            <div class="panel-head">
+              <div>
+                <h3>Tracked Manga</h3>
+                <small>Add or remove tracked entries for this user.</small>
+              </div>
+            </div>
+            <div class="row">
+              <input id="addInput" placeholder="Manga URL, ID, or title" aria-label="Manga URL, ID, or title" />
+              <select id="addSourceHint" aria-label="Source hint"></select>
+            </div>
+            <button id="addTracked">Add Manga</button>
+            <div id="trackedList" class="tracked-grid"></div>
+          </section>
+        </div>
+      </div>
+    </div>
+    </section>
+
+    <section id="tab-settings" class="panel tab-panel hidden" role="tabpanel" aria-labelledby="tab-btn-settings">
+    <div class="section-head">
+      <div>
+        <h2>Settings</h2>
+        <small>Configure sources and runtime environment values.</small>
+      </div>
+      <small class="live-meta">Grouped into source, environment, auth, and runtime cards.</small>
+    </div>
+    <div class="settings-hero">
+      <div class="hero-copy">
+        <strong>Configuration Studio</strong>
+        <small>Use the modules below to change source behavior, deployment values, and runtime controls without leaving the dashboard.</small>
+      </div>
+      <div class="hero-chip-row">
+        <span class="hero-chip">Source tiles</span>
+        <span class="hero-chip">Secure env fields</span>
+        <span class="hero-chip">Live runtime controls</span>
+      </div>
+    </div>
+    <div class="settings-shell">
+      <section class="settings-section">
+        <div class="panel-head">
+          <div>
+            <h3>Sources</h3>
+            <small>Add or remove sources used by the bot.</small>
+          </div>
+        </div>
+
+        <div class="source-row source-row-static">
+          <label for="defaultSource">Default Source</label>
+          <select id="defaultSource"></select>
+        </div>
+
+        <div id="sourcesList" class="source-grid"></div>
+        <div class="row action-row">
+          <button id="addSource">Add Source</button>
+          <button id="saveSources">Save Sources</button>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <div class="panel-head">
+          <div>
+            <h3>Environment</h3>
+            <small>Saved to the bot environment file. Restart the bot after changing values.</small>
+          </div>
+        </div>
+        <div class="grid two">
+      <div class="card">
+        <strong>Bot Token</strong>
+        <small class="setting-key">DISCORD_TOKEN</small>
+        <input id="envDiscordToken" type="password" placeholder="Bot token" autocomplete="off" />
+        <small>Redacted after save. Stored unredacted only in the env file on disk.</small>
+      </div>
+      <div class="card">
+        <strong>Dashboard Host</strong>
+        <small class="setting-key">DASHBOARD_HOST</small>
+        <input id="envDashboardHost" placeholder="0.0.0.0" />
+      </div>
+      <div class="card">
+        <strong>Dashboard Port</strong>
+        <small class="setting-key">DASHBOARD_PORT</small>
+        <input id="envDashboardPort" type="number" min="1" max="65535" placeholder="9898" />
+      </div>
+      <div class="card">
+        <strong>Bot Invite URL Override</strong>
+        <small class="setting-key">OAUTH_URL</small>
+        <input id="envOauthUrl" placeholder="discord_oauth_url" />
+        <small>Manual override. If set, this exact URL is used.</small>
+      </div>
+      <div class="card">
+        <strong>Discord Application ID</strong>
+        <small class="setting-key">DISCORD_CLIENT_ID</small>
+        <input id="envDiscordClientId" placeholder="123456789012345678" />
+      </div>
+      <div class="card">
+        <strong>Bot Invite Scopes</strong>
+        <small class="setting-key">DISCORD_OAUTH_SCOPES</small>
+        <input id="envDiscordOauthScopes" placeholder="bot applications.commands" />
+      </div>
+      <div class="card">
+        <strong>Bot Invite Permissions</strong>
+        <small class="setting-key">DISCORD_OAUTH_PERMISSIONS</small>
+        <input id="envDiscordOauthPermissions" placeholder="0" />
+      </div>
+      <div class="card">
+        <strong>Preferred Invite Server</strong>
+        <small class="setting-key">DISCORD_OAUTH_GUILD_ID</small>
+        <input id="envDiscordOauthGuildId" placeholder="optional_server_id" />
+        <small>If set, invite preselects this server and disables server picker.</small>
+      </div>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <div class="panel-head">
+          <div>
+            <h3>Dashboard Auth</h3>
+            <small>Discord OAuth login for dashboard access control.</small>
+          </div>
+        </div>
+        <div class="grid two">
+      <div class="card">
+        <strong>Dashboard Login Enabled</strong>
+        <small class="setting-key">DASHBOARD_AUTH_ENABLED</small>
+        <select id="envDashboardAuthEnabled">
+          <option value="false">false</option>
+          <option value="true">true</option>
+        </select>
+      </div>
+      <div class="card">
+        <strong>Dashboard Public URL</strong>
+        <small class="setting-key">DASHBOARD_PUBLIC_URL</small>
+        <input id="envDashboardPublicUrl" placeholder="https://your-hostname:9898" />
+        <small>Single active dashboard base URL used for OAuth callback generation.</small>
+      </div>
+      <div class="card">
+        <strong>Dashboard OAuth Client ID</strong>
+        <small class="setting-key">DISCORD_AUTH_CLIENT_ID</small>
+        <input id="envDiscordAuthClientId" placeholder="123456789012345678" />
+      </div>
+      <div class="card">
+        <strong>Dashboard OAuth Client Secret</strong>
+        <small class="setting-key">DISCORD_AUTH_CLIENT_SECRET</small>
+        <input id="envDiscordAuthClientSecret" type="password" placeholder="Discord OAuth client secret" autocomplete="off" />
+      </div>
+      <div class="card">
+        <strong>Session Length (Hours)</strong>
+        <small class="setting-key">DASHBOARD_AUTH_SESSION_HOURS</small>
+        <input id="envDashboardAuthSessionHours" type="number" min="1" max="168" placeholder="12" />
+      </div>
+        </div>
+        <div class="card">
+      <strong>Computed OAuth Callback URL</strong>
+      <input id="envDashboardCallbackUrl" readonly placeholder="Set DASHBOARD_PUBLIC_URL to generate callback URL" />
+      <div class="row action-row">
+        <button id="copyDashboardCallbackUrl" type="button">Copy Callback URL</button>
+      </div>
+      <small id="envDashboardCallbackMeta" class="muted">Add this exact URL to Discord Developer Portal -> OAuth2 -> Redirects.</small>
+        </div>
+        <div class="card">
+      <strong>Setup Status</strong>
+      <div id="setupStatusSummary" class="muted">Loading setup status...</div>
+      <div id="setupStatusChecklist" class="muted"></div>
+      <div class="row action-row">
+        <button id="openOnboardingBtn" type="button">Open Onboarding</button>
+        <button id="resetOnboardingBtn" class="warn" type="button">Mark Incomplete</button>
+      </div>
+        </div>
+        <div id="envMeta" class="muted info-strip"></div>
+        <button id="saveEnv">Save Environment</button>
+      </section>
+
+      <section class="settings-section">
+        <div class="panel-head">
+          <div>
+            <h3>Bot Runtime</h3>
+            <small>Control the Discord bot process without restarting the dashboard.</small>
+          </div>
+        </div>
+        <div class="card">
+      <strong>Bot Status</strong>
+      <div id="botRuntimeStatus" class="muted">Loading...</div>
+        </div>
+        <div class="row action-row">
+          <button id="startBot" class="success">Start Bot</button>
+          <button id="stopBot" class="warn">Stop Bot</button>
+          <button id="restartBot">Restart Bot</button>
+        </div>
+      </section>
+    </div>
+    </section>
+
+    <section id="tab-about" class="panel tab-panel hidden" role="tabpanel" aria-labelledby="tab-btn-about">
+    <div class="section-head">
+      <div>
+        <h2>About</h2>
+        <small>Build metadata and update controls.</small>
+      </div>
+      <small id="aboutLiveMeta" class="live-meta">Waiting for live data...</small>
+    </div>
+    <div class="grid about-grid">
+      <div class="card"><strong>Creator</strong><div id="aboutCreator"></div></div>
+      <div class="card"><strong>Version</strong><div id="aboutVersion"></div></div>
+      <div class="card"><strong>GitHub Repo</strong><div id="aboutRepo"></div></div>
+      <div class="card"><strong>Update System</strong><div id="aboutUpdater"></div></div>
+    </div>
+
+    <section class="settings-section" style="margin-top:12px;">
+      <div class="panel-head">
+        <div>
+          <h3>Updater</h3>
+          <small>Checks GitHub Releases and applies binary updates in-place.</small>
+        </div>
+      </div>
+      <div class="detail-grid updater-layout">
+        <div class="detail-card">
+          <label for="releaseMode">Release Channel</label>
+          <select id="releaseMode">
+            <option value="release">Release</option>
+            <option value="prerelease">Prerelease</option>
+          </select>
+          <label for="releaseVersion">Version</label>
+          <select id="releaseVersion"></select>
+          <div class="row">
+            <button id="checkUpdate">Check For Updates</button>
+            <button id="applyUpdate" class="success">Apply Latest Update</button>
+          </div>
+        </div>
+        <div class="detail-card">
+          <div id="updateProgressWrap" class="progress-wrap hidden" aria-live="polite">
+            <div class="progress-label" id="updateProgressLabel">Preparing update...</div>
+            <div class="progress-track">
+              <div id="updateProgressBar" class="progress-bar" style="width:0%"></div>
+            </div>
+          </div>
+          <pre id="updaterOutput" class="updater-output">No updater action yet.</pre>
+        </div>
+      </div>
+    </section>
+    </section>
+
+    <div id="statusLine" class="status" role="status" aria-live="polite"></div>
+  </main>
+</div>
+
+<div id="confirmModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
+  <div class="modal-panel">
+    <h3 id="confirmModalTitle">Confirm Action</h3>
+    <p id="confirmModalBody" class="muted"></p>
+    <div class="row action-row">
+      <button id="confirmModalCancel" class="warn" type="button">Cancel</button>
+      <button id="confirmModalAccept" class="success" type="button">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div id="authGate" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="authGateTitle">
+  <div class="modal-panel">
+    <h3 id="authGateTitle">Dashboard Login Required</h3>
+    <p id="authGateBody" class="muted">Authenticate with Discord to access the admin dashboard.</p>
+    <div class="row action-row">
+      <button id="authLoginBtn" class="success" type="button">Continue With Discord</button>
+    </div>
+  </div>
+</div>
+
+<div id="onboardingModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="onboardingTitle">
+  <div class="modal-panel">
+    <h3 id="onboardingTitle">First-Time Dashboard Setup</h3>
+    <small id="onboardingStepMeta" class="muted"></small>
+    <p id="onboardingBody" class="muted" style="margin-top:8px;"></p>
+    <div id="onboardingReadiness" class="muted"></div>
+    <div class="row action-row">
+      <button id="onboardingPrevBtn" type="button">Previous</button>
+      <button id="onboardingSaveContinueBtn" class="success" type="button">Save And Verify</button>
+      <button id="onboardingConfirmBtn" type="button">Confirm External Step</button>
+    </div>
+    <div class="row action-row">
+      <button id="onboardingResetBtn" class="warn" type="button">Reset Setup Progress</button>
+      <button id="onboardingCompleteBtn" class="success" type="button">Mark Setup Complete</button>
+    </div>
+  </div>
+</div>
+
+<script src="/dashboardTabState.js"></script>
+<script>
+const tabStateApi = window.DashboardTabState || {};
+const VALID_TABS = Array.isArray(tabStateApi.VALID_TABS) ? tabStateApi.VALID_TABS : ['home', 'users', 'settings', 'about'];
+const FALLBACK_TAB = typeof tabStateApi.FALLBACK_TAB === 'string' ? tabStateApi.FALLBACK_TAB : 'settings';
+const resolveDashboardTab =
+  typeof tabStateApi.resolveDashboardTab === 'function'
+    ? tabStateApi.resolveDashboardTab
+    : (tabKey, options = {}) => {
+        const normalized = String(tabKey || '').trim().toLowerCase();
+        if (!VALID_TABS.includes(normalized)) return FALLBACK_TAB;
+        if (options.onboardingCompleted !== true && normalized !== FALLBACK_TAB) return FALLBACK_TAB;
+        return normalized;
+      };
+
+const state = {
+  home: null,
+  users: [],
+  sources: null,
+  adapters: [],
+  selectedUserId: null,
+  selectedUserData: null,
+  sourceDraft: null,
+  userSearch: '',
+  about: null,
+  updater: null,
+  releaseMode: 'release',
+  envConfig: null,
+  botRuntime: null,
+  updaterAutoChecked: false,
+  updateProgressTimer: null,
+  postUpdateReloadTimer: null,
+  confirmAction: null,
+  auth: null,
+  activeGuildId: '',
+  managedGuildIds: [],
+  guildNamesById: {},
+  activeTab: FALLBACK_TAB,
+  preferredTab: FALLBACK_TAB,
+  lastHomeRefreshAt: 0,
+  lastAboutRefreshAt: 0,
+  liveRefreshTimer: null,
+};
+const TAB_STORAGE_KEY = 'manga_tracker_dashboard_active_tab';
+const GUILD_STORAGE_KEY = 'manga_tracker_dashboard_active_guild';
+const LIVE_REFRESH_INTERVAL_MS = 15000;
+
+function setStatus(message, ok = true) {
+  const el = document.getElementById('statusLine');
+  el.textContent = message;
+  el.classList.remove('ok', 'err');
+  el.classList.add('status', ok ? 'ok' : 'err');
+}
+
+function setUserDetailsVisible(visible) {
+  const panel = document.getElementById('userDetailPanel');
+  const layout = document.getElementById('userLayout');
+  if (!panel) return;
+  panel.classList.toggle('hidden', !visible);
+  if (layout) layout.classList.toggle('has-details', visible);
+}
+
+function readStoredTab() {
+  try {
+    return resolveDashboardTab(localStorage.getItem(TAB_STORAGE_KEY), { onboardingCompleted: true });
+  } catch {}
+  return FALLBACK_TAB;
+}
+
+function getResolvedActiveTab(tabKey) {
+  const onboarding = getOnboardingStatus();
+  return resolveDashboardTab(tabKey, { onboardingCompleted: onboarding.completed === true });
+}
+
+function replaceChildren(node, children) {
+  if (!node) return;
+  node.replaceChildren(...children.filter(Boolean));
+}
+
+function createTextNodeElement(tagName, text, className) {
+  const el = document.createElement(tagName);
+  if (className) el.className = className;
+  el.textContent = text;
+  return el;
+}
+
+function createOption(value, label) {
+  const option = document.createElement('option');
+  option.value = value;
+  option.textContent = label;
+  return option;
+}
+
+function createMetricChip(label, value) {
+  const chip = document.createElement('div');
+  chip.className = 'metric-chip';
+  chip.append(
+    createTextNodeElement('span', label, 'metric-label'),
+    createTextNodeElement('span', value, 'metric-value')
+  );
+  return chip;
+}
+
+function getGuildLabel(guildId) {
+  const normalized = String(guildId || '').trim();
+  if (!normalized) return '';
+  return state.guildNamesById[normalized] || normalized;
+}
+
+function getUserLabel(user) {
+  if (!user) return '';
+  const displayName = String(user.displayName || '').trim();
+  return displayName || String(user.userId || '').trim();
+}
+
+function clearSelectedUserView() {
+  state.selectedUserId = null;
+  state.selectedUserData = null;
+  setUserDetailsVisible(false);
+  document.getElementById('selectedUserTitle').textContent = 'Manage user';
+  document.getElementById('userMeta').textContent = '';
+  replaceChildren(document.getElementById('trackedList'), []);
+}
+
+function formatLiveTimestamp(value) {
+  if (!value) return 'Waiting for live data...';
+  return 'Live sync ' + new Date(value).toLocaleTimeString();
+}
+
+async function copyTextToClipboard(value) {
+  const text = String(value || '');
+  if (!text) throw new Error('Nothing to copy');
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  document.body.appendChild(textarea);
+  textarea.select();
+  const ok = document.execCommand('copy');
+  document.body.removeChild(textarea);
+  if (!ok) throw new Error('Clipboard copy is not supported in this browser context.');
+}
+
+async function api(path, options = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  const response = await fetch(path, { ...options, headers });
+
+  if (!response.ok) {
+    let message = response.statusText;
+    let payload = null;
+    try {
+      payload = await response.json();
+      message = payload.error || message;
+    } catch {}
+    if (response.status === 423 && payload && payload.onboarding) {
+      if (state.envConfig) {
+        state.envConfig.onboarding = payload.onboarding;
+      }
+      if (state.auth) {
+        state.auth.onboarding = payload.onboarding;
+      }
+    }
+    if (response.status === 401) {
+      window.location.replace('/login');
+    }
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
+  }
+
+  return response.json();
+}
+
+function withGuildPath(path) {
+  const guildId = String(state.activeGuildId || '').trim();
+  if (!guildId) throw new Error('Select an active guild first.');
+  const delimiter = path.includes('?') ? '&' : '?';
+  return path + delimiter + 'guildId=' + encodeURIComponent(guildId);
+}
+
+function switchTab(tabKey, { persist = true } = {}) {
+  const requestedTab = String(tabKey || '').trim().toLowerCase();
+  const nextTab = getResolvedActiveTab(requestedTab);
+  const showLockedMessage = persist;
+  if (showLockedMessage && requestedTab !== nextTab) {
+    setStatus('Finish onboarding in Settings before using this tab.', false);
+  }
+  const panel = document.getElementById('tab-' + nextTab);
+  if (!panel) return;
+
+  document.querySelectorAll('.tab-btn').forEach((btn) => {
+    const active = btn.dataset.tab === nextTab;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-selected', active ? 'true' : 'false');
+    btn.tabIndex = active ? 0 : -1;
+  });
+
+  document.querySelectorAll('.tab-panel').forEach((panelEl) => {
+    const isActive = panelEl.id === 'tab-' + nextTab;
+    panelEl.classList.toggle('hidden', !isActive);
+    panelEl.setAttribute('aria-hidden', isActive ? 'false' : 'true');
+  });
+  panel.classList.remove('hidden');
+  panel.setAttribute('aria-hidden', 'false');
+  state.activeTab = nextTab;
+  if (VALID_TABS.includes(requestedTab)) {
+    state.preferredTab = requestedTab;
+  }
+
+  if (persist) {
+    try {
+      localStorage.setItem(TAB_STORAGE_KEY, nextTab);
+    } catch {}
+  }
+}
+
+function clearTabSelection() {
+  document.querySelectorAll('.tab-btn').forEach((btn) => {
+    btn.classList.remove('active');
+    btn.setAttribute('aria-selected', 'false');
+    btn.tabIndex = -1;
+  });
+
+  document.querySelectorAll('.tab-panel').forEach((panelEl) => {
+    panelEl.classList.add('hidden');
+    panelEl.setAttribute('aria-hidden', 'true');
+  });
+}
+
+function renderHome() {
+  const container = document.getElementById('homeCards');
+  replaceChildren(container, []);
+  if (!state.home) {
+    const emptyCard = document.createElement('div');
+    emptyCard.className = 'card';
+    emptyCard.textContent = 'No data';
+    container.appendChild(emptyCard);
+    return;
+  }
+
+  const cards = [
+    ['Bot Status', state.home.botStatus],
+    ['Users', String(state.home.users)],
+    ['Manga Lists', String(state.home.totalTracked)],
+    ['Sources (Enabled)', String(state.home.enabledSources)],
+    ['Default Source', state.home.defaultSource],
+    ['PID', String(state.home.pid)],
+  ];
+
+  for (const card of cards) {
+    const el = document.createElement('div');
+    el.className = 'card';
+    el.appendChild(createTextNodeElement('div', card[0]));
+    el.appendChild(createTextNodeElement('div', card[1], 'value'));
+    container.appendChild(el);
+  }
+
+  const oauthInvite = state.home.oauthInvite || { source: 'unavailable', url: '', reason: 'Invite is not configured.' };
+  const inviteInput = document.getElementById('homeOauthInviteUrl');
+  const inviteMeta = document.getElementById('homeOauthInviteMeta');
+  const copyBtn = document.getElementById('copyInviteUrl');
+  const openBtn = document.getElementById('openInviteUrl');
+  inviteInput.value = oauthInvite.url || '';
+
+  const sourceLabel = oauthInvite.source || 'unavailable';
+  inviteMeta.textContent =
+    'Source: ' + sourceLabel + (oauthInvite.reason ? ' • ' + oauthInvite.reason : '');
+
+  const hasUrl = Boolean(String(oauthInvite.url || '').trim());
+  copyBtn.disabled = !hasUrl;
+  openBtn.disabled = !hasUrl;
+
+  replaceChildren(document.getElementById('homeMeta'), [
+    createMetricChip('Active Guild', getGuildLabel(state.activeGuildId) || 'n/a'),
+    createMetricChip('Uptime', state.home.uptimeHuman),
+    createMetricChip('Memory RSS', state.home.memoryRssMb + ' MB'),
+  ]);
+  document.getElementById('homeLiveMeta').textContent = formatLiveTimestamp(state.lastHomeRefreshAt);
+}
+
+function renderUsers() {
+  const list = document.getElementById('users');
+  replaceChildren(list, []);
+
+  const search = state.userSearch.trim().toLowerCase();
+  const users = search
+    ? state.users.filter((user) => {
+        const userId = String(user.userId || '').toLowerCase();
+        const displayName = String(user.displayName || '').toLowerCase();
+        return userId.includes(search) || displayName.includes(search);
+      })
+    : state.users;
+
+  if (!users.length) {
+    const empty = document.createElement('div');
+    empty.className = 'user-item';
+    empty.setAttribute('role', 'listitem');
+    empty.setAttribute('aria-disabled', 'true');
+    empty.textContent = 'No users found.';
+    list.appendChild(empty);
+    return;
+  }
+
+  for (const user of users) {
+    const row = document.createElement('button');
+    row.className = 'user-item' + (state.selectedUserId === user.userId ? ' active' : '');
+    row.type = 'button';
+    row.setAttribute('role', 'listitem');
+    row.setAttribute('aria-pressed', state.selectedUserId === user.userId ? 'true' : 'false');
+
+    const topLine = document.createElement('div');
+    topLine.className = 'user-item-head';
+    const title = document.createElement('strong');
+    title.textContent = getUserLabel(user);
+    const badge = document.createElement('span');
+    badge.className = 'badge';
+    badge.textContent = user.trackedCount + ' tracked';
+    topLine.append(title, badge);
+
+    const meta = document.createElement('small');
+    meta.textContent =
+      'ID ' +
+      user.userId +
+      ' • ' +
+      user.preferredSource +
+      ' • every ' +
+      user.autoCheckIntervalHours +
+      'h' +
+      (user.isLegacy ? ' • legacy fallback' : '');
+
+    row.append(topLine, meta);
+    row.addEventListener('click', () => selectUser(user.userId));
+    list.appendChild(row);
+  }
+}
+
+function populateSourceOptions() {
+  const preferred = document.getElementById('preferredSource');
+  const addHint = document.getElementById('addSourceHint');
+
+  replaceChildren(preferred, []);
+  replaceChildren(addHint, [createOption('', 'Use preferred source')]);
+
+  const enabledSources = state.sources.sources.filter((source) => source.enabled !== false);
+  for (const source of enabledSources) {
+    const option = document.createElement('option');
+    option.value = source.key;
+    option.textContent = source.displayName + ' (' + source.key + ')';
+    preferred.appendChild(option);
+
+    const option2 = option.cloneNode(true);
+    addHint.appendChild(option2);
+  }
+}
+
+function renderTracked() {
+  const trackedList = document.getElementById('trackedList');
+  replaceChildren(trackedList, []);
+
+  if (!state.selectedUserData || !state.selectedUserData.tracked.length) {
+    trackedList.appendChild(createTextNodeElement('p', 'No tracked manga for this user.', 'muted'));
+    return;
+  }
+
+  for (const entry of state.selectedUserData.tracked) {
+    const card = document.createElement('div');
+    card.className = 'tracked-row';
+
+    const details = document.createElement('div');
+    details.className = 'tracked-copy';
+    details.appendChild(createTextNodeElement('strong', entry.title || entry.mangaId));
+    details.appendChild(createTextNodeElement('small', entry.source + ' • ' + entry.mangaId));
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'warn';
+    removeBtn.textContent = 'Remove';
+    removeBtn.addEventListener('click', async () => {
+      try {
+        await api(
+          withGuildPath(
+            '/api/users/' +
+              state.selectedUserId +
+              '/tracked?source=' +
+              encodeURIComponent(entry.source) +
+              '&mangaId=' +
+              encodeURIComponent(entry.mangaId)
+          ),
+          {
+          method: 'DELETE',
+          }
+        );
+        setStatus('Removed tracked manga.', true);
+        await selectUser(state.selectedUserId);
+        await refreshAll();
+      } catch (error) {
+        setStatus(error.message, false);
+      }
+    });
+
+    card.append(details, removeBtn);
+    trackedList.appendChild(card);
+  }
+}
+
+function renderSourcesSettings() {
+  const defaultSelect = document.getElementById('defaultSource');
+  const list = document.getElementById('sourcesList');
+
+  defaultSelect.innerHTML = '';
+  list.innerHTML = '';
+
+  if (!state.sourceDraft || !Array.isArray(state.sourceDraft.sources)) return;
+
+  const enabledSources = state.sourceDraft.sources.filter((source) => source.enabled !== false);
+  for (const source of enabledSources) {
+    const option = document.createElement('option');
+    option.value = source.key;
+    option.textContent = source.displayName + ' (' + source.key + ')';
+    defaultSelect.appendChild(option);
+  }
+
+  if (enabledSources.length > 0) {
+    defaultSelect.value = state.sourceDraft.defaultSource || enabledSources[0].key;
+  }
+
+  state.sourceDraft.sources.forEach((source, index) => {
+    const keyId = 'source-key-' + index;
+    const adapterId = 'source-adapter-' + index;
+    const enabledId = 'source-enabled-' + index;
+    const displayNameId = 'source-display-name-' + index;
+    const titleUrlId = 'source-title-url-' + index;
+    const hostsId = 'source-hosts-' + index;
+    const row = document.createElement('div');
+    row.className = 'source-row';
+
+    function createField(labelText, control) {
+      const wrapper = document.createElement('div');
+      const label = document.createElement('label');
+      label.htmlFor = control.id;
+      label.textContent = labelText;
+      wrapper.append(label, control);
+      return wrapper;
+    }
+
+    const keyInput = document.createElement('input');
+    keyInput.id = keyId;
+    keyInput.dataset.field = 'key';
+    keyInput.dataset.index = index;
+    keyInput.value = source.key || '';
+
+    const adapterSelect = document.createElement('select');
+    adapterSelect.id = adapterId;
+    adapterSelect.dataset.field = 'adapter';
+    adapterSelect.dataset.index = index;
+    for (const adapterKey of state.adapters) {
+      const option = createOption(adapterKey, adapterKey);
+      if (adapterKey === (source.adapter || source.key)) option.selected = true;
+      adapterSelect.appendChild(option);
+    }
+
+    const enabledInput = document.createElement('input');
+    enabledInput.id = enabledId;
+    enabledInput.dataset.field = 'enabled';
+    enabledInput.dataset.index = index;
+    enabledInput.type = 'checkbox';
+    enabledInput.checked = source.enabled !== false;
+
+    const displayNameInput = document.createElement('input');
+    displayNameInput.id = displayNameId;
+    displayNameInput.dataset.field = 'displayName';
+    displayNameInput.dataset.index = index;
+    displayNameInput.value = source.displayName || '';
+
+    const titleUrlInput = document.createElement('input');
+    titleUrlInput.id = titleUrlId;
+    titleUrlInput.dataset.field = 'titleUrl';
+    titleUrlInput.dataset.index = index;
+    titleUrlInput.value = source.titleUrl || '';
+
+    const hostsInput = document.createElement('input');
+    hostsInput.id = hostsId;
+    hostsInput.dataset.field = 'hosts';
+    hostsInput.dataset.index = index;
+    hostsInput.value = Array.isArray(source.hosts) ? source.hosts.join(', ') : '';
+
+    row.append(
+      createField('Key', keyInput),
+      createField('Adapter', adapterSelect),
+      createField('Enabled', enabledInput),
+      createField('Display Name', displayNameInput),
+      createField('Title URL', titleUrlInput),
+      createField('Hosts (comma separated)', hostsInput)
+    );
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'warn';
+    removeBtn.textContent = 'Remove Source';
+    removeBtn.addEventListener('click', () => {
+      state.sourceDraft.sources.splice(index, 1);
+      const remainingEnabled = state.sourceDraft.sources.filter((item) => item.enabled !== false);
+      if (remainingEnabled.length === 0) {
+        state.sourceDraft.defaultSource = '';
+      } else if (!remainingEnabled.some((item) => item.key === state.sourceDraft.defaultSource)) {
+        state.sourceDraft.defaultSource = remainingEnabled[0].key;
+      }
+      renderSourcesSettings();
+    });
+
+    row.appendChild(removeBtn);
+    list.appendChild(row);
+  });
+
+  list.querySelectorAll('[data-field]').forEach((input) => {
+    const eventName = input.tagName === 'SELECT' ? 'change' : 'input';
+    input.addEventListener(eventName, (event) => {
+      const idx = Number(event.target.dataset.index);
+      const field = event.target.dataset.field;
+      const value = field === 'enabled' ? event.target.checked : event.target.value;
+
+      if (!state.sourceDraft.sources[idx]) return;
+
+      if (field === 'hosts') {
+        state.sourceDraft.sources[idx].hosts = value
+          .split(',')
+          .map((v) => v.trim())
+          .filter(Boolean);
+      } else {
+        state.sourceDraft.sources[idx][field] = value;
+      }
+
+      if (field === 'enabled') {
+        const enabled = state.sourceDraft.sources.filter((item) => item.enabled !== false);
+        if (enabled.length > 0 && !enabled.some((item) => item.key === state.sourceDraft.defaultSource)) {
+          state.sourceDraft.defaultSource = enabled[0].key;
+        }
+      }
+
+      if (field === 'key' && state.sourceDraft.defaultSource === '') {
+        state.sourceDraft.defaultSource = value.trim().toLowerCase();
+      }
+    });
+  });
+
+  defaultSelect.onchange = () => {
+    state.sourceDraft.defaultSource = defaultSelect.value;
+  };
+}
+
+function renderAbout() {
+  if (!state.about) return;
+  document.getElementById('aboutCreator').textContent = state.about.creator;
+  document.getElementById('aboutVersion').textContent = state.about.version;
+
+  const repo = document.getElementById('aboutRepo');
+  const link = document.createElement('a');
+  link.href = state.about.repo;
+  link.target = '_blank';
+  link.rel = 'noreferrer';
+  link.textContent = state.about.repo;
+  replaceChildren(repo, [link]);
+
+  document.getElementById('aboutUpdater').textContent = state.about.updateSystem;
+  document.getElementById('aboutLiveMeta').textContent = formatLiveTimestamp(state.lastAboutRefreshAt);
+}
+
+function renderEnvSettings() {
+  if (!state.envConfig || !state.envConfig.values) return;
+  const values = state.envConfig.values;
+  document.getElementById('envDiscordToken').value = values.DISCORD_TOKEN || '';
+  document.getElementById('envDashboardHost').value = values.DASHBOARD_HOST || '';
+  document.getElementById('envDashboardPort').value = values.DASHBOARD_PORT || '';
+  document.getElementById('envOauthUrl').value = values.OAUTH_URL || '';
+  document.getElementById('envDiscordClientId').value = values.DISCORD_CLIENT_ID || '';
+  document.getElementById('envDiscordOauthScopes').value = values.DISCORD_OAUTH_SCOPES || '';
+  document.getElementById('envDiscordOauthPermissions').value = values.DISCORD_OAUTH_PERMISSIONS || '';
+  document.getElementById('envDiscordOauthGuildId').value = values.DISCORD_OAUTH_GUILD_ID || '';
+  document.getElementById('envDashboardAuthEnabled').value = values.DASHBOARD_AUTH_ENABLED || 'false';
+  document.getElementById('envDashboardPublicUrl').value = values.DASHBOARD_PUBLIC_URL || '';
+  document.getElementById('envDiscordAuthClientId').value = values.DISCORD_AUTH_CLIENT_ID || '';
+  document.getElementById('envDiscordAuthClientSecret').value = values.DISCORD_AUTH_CLIENT_SECRET || '';
+  document.getElementById('envDashboardAuthSessionHours').value = values.DASHBOARD_AUTH_SESSION_HOURS || '12';
+
+  const callbackUrl = state.envConfig.dashboardAuth && state.envConfig.dashboardAuth.callbackUrl
+    ? state.envConfig.dashboardAuth.callbackUrl
+    : '';
+  const callbackInput = document.getElementById('envDashboardCallbackUrl');
+  const callbackMeta = document.getElementById('envDashboardCallbackMeta');
+  const callbackCopyBtn = document.getElementById('copyDashboardCallbackUrl');
+  callbackInput.value = callbackUrl;
+  callbackCopyBtn.disabled = !callbackUrl;
+  callbackMeta.textContent =
+    (state.envConfig.dashboardAuth && state.envConfig.dashboardAuth.callbackHelpText) ||
+    'Callback URL unavailable. Set DASHBOARD_PUBLIC_URL to generate it.';
+
+  document.getElementById('envMeta').textContent = 'Env file: ' + (state.envConfig.envFilePath || 'unknown');
+  renderSetupStatusCard();
+}
+
+function getOnboardingStatus() {
+  if (state.envConfig && state.envConfig.onboarding) return state.envConfig.onboarding;
+  if (state.auth && state.auth.onboarding) return state.auth.onboarding;
+  return {
+    completed: false,
+    currentStep: 1,
+    readyToComplete: false,
+    confirmations: {
+      inviteConfirmed: false,
+      callbackConfirmed: false,
+    },
+    steps: [],
+    readiness: {
+      botConfigured: false,
+      botInviteReady: false,
+      dashboardAuthReady: false,
+    },
+    missing: [],
+    hints: [],
+    display: {
+      summary: '',
+      checklistItems: [],
+      warningMessage: '',
+      lockedTabTooltip: 'Complete onboarding in Settings to unlock this tab.',
+      unavailableMessage: 'Setup state unavailable',
+      unavailableBody: 'Refresh the page to reload onboarding state.',
+    },
+  };
+}
+
+function renderSetupStatusCard() {
+  const onboarding = getOnboardingStatus();
+  const summary = document.getElementById('setupStatusSummary');
+  const checklist = document.getElementById('setupStatusChecklist');
+  const warning = document.getElementById('setupWarningBanner');
+  if (!summary || !checklist || !warning) return;
+
+  const display = onboarding.display || {};
+  const checklistItems = Array.isArray(display.checklistItems) ? display.checklistItems : [];
+
+  summary.textContent = display.summary || '';
+  replaceChildren(
+    checklist,
+    checklistItems.map((item) => createTextNodeElement('div', (item.complete ? '[ok] ' : '[missing] ') + item.label))
+  );
+
+  if (display.warningMessage) {
+    warning.textContent = display.warningMessage;
+    warning.classList.remove('hidden');
+  } else {
+    warning.classList.add('hidden');
+  }
+
+  updateDashboardLocks();
+}
+
+function updateDashboardLocks() {
+  const onboarding = getOnboardingStatus();
+  const locked = !onboarding.completed;
+  const allowedTabs = new Set(['settings']);
+  const display = onboarding.display || {};
+  document.querySelectorAll('.tab-btn').forEach((btn) => {
+    const tab = String(btn.dataset.tab || '').trim().toLowerCase();
+    const isLockedTab = locked && !allowedTabs.has(tab);
+    btn.disabled = isLockedTab;
+    btn.title = isLockedTab ? display.lockedTabTooltip || 'Complete onboarding in Settings to unlock this tab.' : '';
+  });
+  const activeGuild = document.getElementById('activeGuildSelect');
+  if (activeGuild) activeGuild.disabled = locked;
+}
+
+function showOnboardingModal() {
+  const modal = document.getElementById('onboardingModal');
+  renderOnboardingStep();
+  modal.classList.remove('hidden');
+}
+
+function hideOnboardingModal() {
+  const modal = document.getElementById('onboardingModal');
+  modal.classList.add('hidden');
+}
+
+function renderOnboardingStep() {
+  const onboarding = getOnboardingStatus();
+  const steps = Array.isArray(onboarding.steps) ? onboarding.steps : [];
+  const stepIndex = Number(onboarding.currentStep || 1);
+  const step = steps.find((item) => item.index === stepIndex) || steps[0] || null;
+  const meta = document.getElementById('onboardingStepMeta');
+  const body = document.getElementById('onboardingBody');
+  const ready = document.getElementById('onboardingReadiness');
+  const prevBtn = document.getElementById('onboardingPrevBtn');
+  const saveBtn = document.getElementById('onboardingSaveContinueBtn');
+  const confirmBtn = document.getElementById('onboardingConfirmBtn');
+  const completeBtn = document.getElementById('onboardingCompleteBtn');
+  const display = onboarding.display || {};
+
+  if (!step) {
+    meta.textContent = display.unavailableMessage || 'Setup state unavailable';
+    body.textContent = display.unavailableBody || 'Refresh the page to reload onboarding state.';
+    ready.textContent = '';
+    prevBtn.disabled = true;
+    saveBtn.disabled = true;
+    confirmBtn.disabled = true;
+    completeBtn.disabled = true;
+    return;
+  }
+
+  meta.textContent = step.title;
+  body.textContent = step.body;
+  ready.textContent =
+    'Readiness: ' +
+    (step.ready ? 'ready' : 'not ready') +
+    ' • Confirmed: ' +
+    (step.confirmed ? 'yes' : 'no') +
+    ' • Complete: ' +
+    (step.complete ? 'yes' : 'no') +
+    (step.blockedReason ? ' • ' + step.blockedReason : '');
+
+  prevBtn.disabled = stepIndex <= 1;
+  saveBtn.textContent = stepIndex === 1 ? 'Save And Verify' : 'Save Settings';
+  saveBtn.disabled = false;
+  confirmBtn.disabled = !(stepIndex === 2 || stepIndex === 3) || !step.ready || step.confirmed;
+  confirmBtn.classList.toggle('success', stepIndex === 2 || stepIndex === 3);
+  completeBtn.disabled = !onboarding.readyToComplete;
+}
+
+function renderGuildSelector() {
+  const select = document.getElementById('activeGuildSelect');
+  if (!select) return;
+  select.innerHTML = '';
+
+  const guildIds = Array.isArray(state.managedGuildIds) ? state.managedGuildIds : [];
+  if (guildIds.length === 0) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'No accessible guilds';
+    select.appendChild(option);
+    select.disabled = true;
+    state.activeGuildId = '';
+    return;
+  }
+
+  select.disabled = false;
+  for (const guildId of guildIds) {
+    const option = document.createElement('option');
+    option.value = guildId;
+    option.textContent = getGuildLabel(guildId);
+    select.appendChild(option);
+  }
+
+  if (!guildIds.includes(state.activeGuildId)) {
+    try {
+      const saved = localStorage.getItem(GUILD_STORAGE_KEY);
+      if (saved && guildIds.includes(saved)) {
+        state.activeGuildId = saved;
+      } else {
+        state.activeGuildId = guildIds[0];
+      }
+    } catch {
+      state.activeGuildId = guildIds[0];
+    }
+  }
+
+  select.value = state.activeGuildId;
+}
+
+function renderBotRuntime() {
+  const statusEl = document.getElementById('botRuntimeStatus');
+  if (!statusEl) return;
+
+  const runtime = state.botRuntime || { status: 'unknown' };
+  const status = String(runtime.status || 'unknown');
+  const startedAt = runtime.startedAt ? new Date(runtime.startedAt).toLocaleString() : 'n/a';
+  const stoppedAt = runtime.stoppedAt ? new Date(runtime.stoppedAt).toLocaleString() : 'n/a';
+  const lastError = runtime.lastError || 'none';
+  statusEl.textContent =
+    'Status: ' +
+    status +
+    ' • Started: ' +
+    startedAt +
+    ' • Stopped: ' +
+    stoppedAt +
+    ' • Last error: ' +
+    lastError;
+
+  const busy = status === 'starting' || status === 'stopping';
+  const startBtn = document.getElementById('startBot');
+  const stopBtn = document.getElementById('stopBot');
+  const restartBtn = document.getElementById('restartBot');
+  if (startBtn) startBtn.disabled = busy || status === 'running';
+  if (stopBtn) stopBtn.disabled = busy || status === 'stopped';
+  if (restartBtn) restartBtn.disabled = busy;
+}
+
+function renderUpdater() {
+  const out = document.getElementById('updaterOutput');
+  const versionSelect = document.getElementById('releaseVersion');
+  const modeSelect = document.getElementById('releaseMode');
+  const safeMode =
+    (modeSelect && modeSelect.value === 'prerelease') || state.releaseMode === 'prerelease'
+      ? 'prerelease'
+      : 'release';
+
+  if (modeSelect && modeSelect.value !== safeMode) {
+    modeSelect.value = safeMode;
+  }
+  state.releaseMode = safeMode;
+
+  if (versionSelect) {
+    const currentValue = versionSelect.value;
+    versionSelect.innerHTML = '';
+    const releases = state.updater && Array.isArray(state.updater.availableReleases) ? state.updater.availableReleases : [];
+    const channelReleases = releases.filter((release) => (safeMode === 'prerelease' ? release.prerelease : !release.prerelease));
+
+    const datedReleases = channelReleases
+      .map((release) => ({
+        release,
+        ts: Date.parse(release.publishedAt || release.createdAt || release.releasedAt || ''),
+      }))
+      .sort((a, b) => {
+        const aValid = Number.isFinite(a.ts);
+        const bValid = Number.isFinite(b.ts);
+        if (aValid && bValid) return b.ts - a.ts;
+        if (aValid) return -1;
+        if (bValid) return 1;
+        return 0;
+      });
+
+    const sortedChannelReleases = datedReleases.map((item) => item.release);
+    const latestTag = sortedChannelReleases.length ? sortedChannelReleases[0].tagName : null;
+
+    if (!sortedChannelReleases.length) {
+      const emptyOption = document.createElement('option');
+      emptyOption.value = '';
+      emptyOption.textContent = 'No versions available';
+      emptyOption.disabled = true;
+      emptyOption.selected = true;
+      versionSelect.appendChild(emptyOption);
+    }
+
+    for (const release of sortedChannelReleases) {
+      const option = document.createElement('option');
+      option.value = release.tagName;
+      option.textContent = release.tagName + (release.tagName === latestTag ? ' (latest)' : '');
+      versionSelect.appendChild(option);
+    }
+
+    if (currentValue && sortedChannelReleases.some((r) => r.tagName === currentValue)) {
+      versionSelect.value = currentValue;
+    } else if (latestTag) {
+      versionSelect.value = latestTag;
+    }
+  }
+
+  if (!state.updater) {
+    out.textContent = 'No updater action yet.';
+    return;
+  }
+
+  const lines = [];
+  if (state.updater.lastCheck) {
+    const check = state.updater.lastCheck;
+    lines.push('Last check:');
+    lines.push('  Current version: ' + check.currentVersion);
+    lines.push('  Latest version:  ' + check.latestVersion);
+    lines.push('  Update available: ' + (check.updateAvailable ? 'yes' : 'no'));
+    if (check.warning) lines.push('  Note: ' + check.warning);
+    if (check.release && check.release.htmlUrl) lines.push('  Release URL: ' + check.release.htmlUrl);
+  }
+
+  if (state.updater.lastApply) {
+    lines.push('');
+    lines.push('Last apply:');
+    lines.push('  Applied: ' + (state.updater.lastApply.applied ? 'yes' : 'no'));
+    if (state.updater.lastApply.fromVersion && state.updater.lastApply.toVersion) {
+      lines.push('  Version: ' + state.updater.lastApply.fromVersion + ' -> ' + state.updater.lastApply.toVersion);
+    }
+    if (state.updater.lastApply.asset && state.updater.lastApply.asset.name) {
+      lines.push('  Asset: ' + state.updater.lastApply.asset.name);
+    }
+  }
+
+  if (state.updater.lastError) {
+    lines.push('');
+    lines.push('Last error:');
+    lines.push('  ' + state.updater.lastError);
+  }
+
+  lines.push('');
+  lines.push('Updater state:');
+  lines.push('  Checking: ' + (state.updater.checking ? 'yes' : 'no'));
+  lines.push('  Applying: ' + (state.updater.applying ? 'yes' : 'no'));
+  lines.push('  Binary path: ' + (state.updater.updaterState ? state.updater.updaterState.binaryPath : 'n/a'));
+  lines.push('  Releases page: ' + (state.updater.updaterState ? state.updater.updaterState.releasesPageUrl : 'n/a'));
+
+  out.textContent = lines.join('\n');
+}
+
+function showAuthGate(message) {
+  const modal = document.getElementById('authGate');
+  const body = document.getElementById('authGateBody');
+  body.textContent = message || 'Authenticate with Discord to access the admin dashboard.';
+  modal.classList.remove('hidden');
+}
+
+function hideAuthGate() {
+  const modal = document.getElementById('authGate');
+  modal.classList.add('hidden');
+}
+
+async function refreshAuthState() {
+  state.auth = await api('/api/admin/auth/me');
+  const manageableGuilds = Array.isArray(state.auth.manageableGuilds) ? state.auth.manageableGuilds : [];
+  state.managedGuildIds = manageableGuilds.map((guild) => String(guild && guild.id || '').trim()).filter(Boolean);
+  state.guildNamesById = {};
+  const allowedGuilds = [
+    ...(Array.isArray(state.auth.allowedGuilds) ? state.auth.allowedGuilds : []),
+    ...manageableGuilds,
+  ];
+  for (const guild of allowedGuilds) {
+    const guildId = String(guild && guild.id || '').trim();
+    if (!guildId) continue;
+    state.guildNamesById[guildId] = String(guild && guild.name || '').trim() || guildId;
+  }
+  renderGuildSelector();
+  renderSetupStatusCard();
+}
+
+async function refreshHome() {
+  state.home = await api(withGuildPath('/api/admin/home'));
+  state.lastHomeRefreshAt = Date.now();
+  renderHome();
+}
+
+async function refreshUsers() {
+  const payload = await api(withGuildPath('/api/users'));
+  state.users = payload.users;
+  if (state.selectedUserId && !state.users.some((user) => user.userId === state.selectedUserId)) {
+    clearSelectedUserView();
+  }
+  renderUsers();
+}
+
+async function refreshSources() {
+  state.sources = await api('/api/admin/sources');
+  state.sourceDraft = JSON.parse(JSON.stringify(state.sources));
+  populateSourceOptions();
+  renderSourcesSettings();
+}
+
+async function refreshAdapters() {
+  const payload = await api('/api/admin/source-adapters');
+  state.adapters = Array.isArray(payload.adapters) ? payload.adapters : [];
+}
+
+async function refreshAbout() {
+  state.about = await api('/api/admin/about');
+  state.lastAboutRefreshAt = Date.now();
+  renderAbout();
+}
+
+async function refreshLiveSections() {
+  if (!state.auth || !state.auth.authenticated) return;
+  const jobs = [refreshAbout()];
+  if (state.activeGuildId) {
+    jobs.push(refreshHome());
+  }
+  await Promise.all(jobs);
+}
+
+function startLiveRefreshLoop() {
+  if (state.liveRefreshTimer) return;
+  state.liveRefreshTimer = setInterval(async () => {
+    if (document.hidden) return;
+    try {
+      await refreshLiveSections();
+    } catch {}
+  }, LIVE_REFRESH_INTERVAL_MS);
+}
+
+async function refreshUpdater() {
+  state.updater = await api('/api/admin/updater/status');
+  if (state.updater && (state.updater.releaseMode === 'prerelease' || state.updater.releaseMode === 'release')) {
+    state.releaseMode = state.updater.releaseMode;
+  }
+  if (
+    state.updater &&
+    !state.updaterAutoChecked &&
+    !state.updater.checking &&
+    !state.updater.applying &&
+    Array.isArray(state.updater.availableReleases) &&
+    state.updater.availableReleases.length === 0
+  ) {
+    state.updaterAutoChecked = true;
+    try {
+      state.updater = await api('/api/admin/updater/check', {
+        method: 'POST',
+        body: JSON.stringify({ releaseMode: state.releaseMode }),
+      });
+    } catch {}
+  }
+  renderUpdater();
+}
+
+async function refreshEnvConfig() {
+  state.envConfig = await api('/api/admin/env');
+  renderEnvSettings();
+}
+
+async function refreshBotRuntime() {
+  state.botRuntime = await api('/api/admin/bot/status');
+  renderBotRuntime();
+}
+
+async function selectUser(userId) {
+  state.selectedUserId = userId;
+  const payload = await api(withGuildPath('/api/users/' + userId));
+  state.selectedUserData = payload.user;
+  const userLabel = getUserLabel(payload.user);
+
+  document.getElementById('selectedUserTitle').textContent = userLabel;
+  document.getElementById('userMeta').textContent =
+    'User ID: ' +
+    userId +
+    ' • Guild: ' +
+    getGuildLabel(state.activeGuildId) +
+    ' • Tracked: ' +
+    payload.user.tracked.length +
+    ' • Last auto-check: ' +
+    (payload.user.lastAutoCheckAt || 'never') +
+    (payload.user.isLegacy ? ' • legacy fallback' : '');
+
+  document.getElementById('preferredSource').value = payload.user.preferredSource;
+  document.getElementById('autoHours').value = payload.user.autoCheckIntervalHours;
+
+  setUserDetailsVisible(true);
+  renderUsers();
+  renderTracked();
+}
+
+async function saveSettings() {
+  if (!state.selectedUserId) return setStatus('Select a user first.', false);
+  try {
+    const payload = await api(withGuildPath('/api/users/' + state.selectedUserId + '/settings'), {
+      method: 'PUT',
+      body: JSON.stringify({
+        preferredSource: document.getElementById('preferredSource').value,
+        autoCheckIntervalHours: Number(document.getElementById('autoHours').value),
+      }),
+    });
+    setStatus(payload.message || 'Settings updated.', true);
+    await selectUser(state.selectedUserId);
+    await refreshHome();
+    await refreshUsers();
+  } catch (error) {
+    setStatus(error.message, false);
+  }
+}
+
+async function deleteUser() {
+  if (!state.selectedUserId) return setStatus('Select a user first.', false);
+  const confirmed = await showConfirmModal({
+    title: 'Delete User?',
+    body: 'Delete user ' + state.selectedUserId + ' and all tracked data? This cannot be undone.',
+    confirmLabel: 'Delete User',
+    confirmClass: 'warn',
+  });
+  if (!confirmed) return;
+
+  try {
+    await api(withGuildPath('/api/users/' + state.selectedUserId), { method: 'DELETE' });
+    setStatus('User deleted.', true);
+    clearSelectedUserView();
+    await refreshAll();
+  } catch (error) {
+    setStatus(error.message, false);
+  }
+}
+
+async function addTracked() {
+  if (!state.selectedUserId) return setStatus('Select a user first.', false);
+
+  const input = document.getElementById('addInput').value.trim();
+  if (!input) return setStatus('Provide manga input.', false);
+
+  try {
+    const payload = await api(withGuildPath('/api/users/' + state.selectedUserId + '/tracked'), {
+      method: 'POST',
+      body: JSON.stringify({
+        input,
+        sourceHint: document.getElementById('addSourceHint').value || null,
+      }),
+    });
+    setStatus(payload.message || 'Tracked manga updated.', true);
+    document.getElementById('addInput').value = '';
+    await selectUser(state.selectedUserId);
+    await refreshAll();
+  } catch (error) {
+    setStatus(error.message, false);
+  }
+}
+
+function addSourceDraft() {
+  if (!state.sourceDraft || !Array.isArray(state.sourceDraft.sources)) return;
+  state.sourceDraft.sources.push({
+    key: '',
+    adapter: state.adapters[0] || '',
+    enabled: true,
+    displayName: '',
+    hosts: [],
+    titleUrl: '',
+  });
+  renderSourcesSettings();
+}
+
+async function saveSources() {
+  try {
+    const payload = {
+      defaultSource: state.sourceDraft.defaultSource,
+      sources: state.sourceDraft.sources.map((source) => ({
+        key: (source.key || '').trim().toLowerCase(),
+        adapter: (source.adapter || source.key || '').trim().toLowerCase(),
+        enabled: source.enabled !== false,
+        displayName: (source.displayName || '').trim(),
+        hosts: Array.isArray(source.hosts)
+          ? source.hosts.map((host) => String(host || '').trim().toLowerCase()).filter(Boolean)
+          : [],
+        titleUrl: (source.titleUrl || '').trim(),
+      })),
+    };
+
+    state.sources = await api('/api/admin/sources', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+
+    state.sourceDraft = JSON.parse(JSON.stringify(state.sources));
+    populateSourceOptions();
+    renderSourcesSettings();
+    setStatus('Sources updated.', true);
+    if (state.activeGuildId) {
+      await refreshHome();
+    }
+  } catch (error) {
+    setStatus(error.message, false);
+  }
+}
+
+async function saveEnvConfig({ silent = false } = {}) {
+  try {
+    const payload = await api('/api/admin/env', {
+      method: 'PUT',
+      body: JSON.stringify({
+        values: {
+          DISCORD_TOKEN: document.getElementById('envDiscordToken').value,
+          DASHBOARD_HOST: document.getElementById('envDashboardHost').value,
+          DASHBOARD_PORT: document.getElementById('envDashboardPort').value,
+          OAUTH_URL: document.getElementById('envOauthUrl').value,
+          DISCORD_CLIENT_ID: document.getElementById('envDiscordClientId').value,
+          DISCORD_OAUTH_SCOPES: document.getElementById('envDiscordOauthScopes').value,
+          DISCORD_OAUTH_PERMISSIONS: document.getElementById('envDiscordOauthPermissions').value,
+          DISCORD_OAUTH_GUILD_ID: document.getElementById('envDiscordOauthGuildId').value,
+          DASHBOARD_AUTH_ENABLED: document.getElementById('envDashboardAuthEnabled').value,
+          DASHBOARD_PUBLIC_URL: document.getElementById('envDashboardPublicUrl').value,
+          DISCORD_AUTH_CLIENT_ID: document.getElementById('envDiscordAuthClientId').value,
+          DISCORD_AUTH_CLIENT_SECRET: document.getElementById('envDiscordAuthClientSecret').value,
+          DASHBOARD_AUTH_SESSION_HOURS: document.getElementById('envDashboardAuthSessionHours').value,
+        },
+      }),
+    });
+    state.envConfig = payload;
+    renderEnvSettings();
+    await refreshAuthState();
+    const onboarding = getOnboardingStatus();
+    if (onboarding.completed) {
+      await refreshBotRuntime();
+      if (state.activeGuildId) {
+        await refreshHome();
+      }
+    } else {
+      showOnboardingModal();
+      switchTab('settings', { persist: false });
+    }
+    if (!silent) setStatus(payload.message || 'Environment saved.', true);
+    return payload;
+  } catch (error) {
+    setStatus(error.message, false);
+    throw error;
+  }
+}
+
+async function runBotAction(action) {
+  try {
+    const payload = await api('/api/admin/bot/' + action, { method: 'POST' });
+    state.botRuntime = payload;
+    renderBotRuntime();
+    if (state.activeGuildId) {
+      await refreshHome();
+    }
+    setStatus(payload.message || 'Bot ' + action + ' completed.', true);
+  } catch (error) {
+    await refreshBotRuntime();
+    if (state.activeGuildId) {
+      await refreshHome();
+    }
+    setStatus(error.message, false);
+  }
+}
+
+async function checkForUpdates() {
+  const releaseMode = document.getElementById('releaseMode').value;
+  const selectedTag = document.getElementById('releaseVersion').value.trim();
+  state.releaseMode = releaseMode === 'prerelease' ? 'prerelease' : 'release';
+
+  try {
+    state.updater = await api('/api/admin/updater/check', {
+      method: 'POST',
+      body: JSON.stringify({
+        releaseMode: state.releaseMode,
+        tagName: selectedTag || null,
+      }),
+    });
+    renderUpdater();
+    const updateAvailable = state.updater.lastCheck && state.updater.lastCheck.updateAvailable;
+    setStatus(updateAvailable ? 'Update available.' : 'No update available.', true);
+  } catch (error) {
+    setStatus(error.message, false);
+  }
+}
+
+function showConfirmModal({ title, body, confirmLabel, confirmClass = 'success' }) {
+  const modal = document.getElementById('confirmModal');
+  const titleEl = document.getElementById('confirmModalTitle');
+  const bodyEl = document.getElementById('confirmModalBody');
+  const acceptBtn = document.getElementById('confirmModalAccept');
+  const cancelBtn = document.getElementById('confirmModalCancel');
+
+  titleEl.textContent = title || 'Confirm Action';
+  bodyEl.textContent = body || '';
+  acceptBtn.textContent = confirmLabel || 'Confirm';
+  acceptBtn.className = confirmClass;
+  cancelBtn.className = 'warn';
+
+  return new Promise((resolve) => {
+    state.confirmAction = resolve;
+    modal.classList.remove('hidden');
+    acceptBtn.focus();
+  });
+}
+
+function settleConfirmModal(result) {
+  if (typeof state.confirmAction === 'function') {
+    const resolver = state.confirmAction;
+    state.confirmAction = null;
+    resolver(result);
+  }
+  closeConfirmModal();
+}
+
+function closeConfirmModal() {
+  const modal = document.getElementById('confirmModal');
+  modal.classList.add('hidden');
+}
+
+async function openUpdateConfirmModal() {
+  const selectedTag = (document.getElementById('releaseVersion').value || '').trim();
+  const channel = document.getElementById('releaseMode').value === 'prerelease' ? 'prerelease' : 'release';
+  const body =
+    'This downloads the selected binary, replaces the current executable, and restarts the service. ' +
+    'Channel: ' +
+    channel +
+    (selectedTag ? ' • Version: ' + selectedTag : ' • Version: latest in channel');
+  const confirmed = await showConfirmModal({
+    title: 'Apply Bot Update?',
+    body,
+    confirmLabel: 'Apply Update',
+    confirmClass: 'success',
+  });
+  if (!confirmed) return;
+  await applyUpdate();
+}
+
+function setUpdateProgress(percent, label) {
+  const wrap = document.getElementById('updateProgressWrap');
+  const bar = document.getElementById('updateProgressBar');
+  const text = document.getElementById('updateProgressLabel');
+  const safe = Math.max(0, Math.min(100, Math.floor(percent)));
+  wrap.classList.remove('hidden');
+  bar.style.width = safe + '%';
+  text.textContent = label || 'Updating...';
+}
+
+function clearUpdateProgress() {
+  const wrap = document.getElementById('updateProgressWrap');
+  const bar = document.getElementById('updateProgressBar');
+  if (state.updateProgressTimer) {
+    clearInterval(state.updateProgressTimer);
+    state.updateProgressTimer = null;
+  }
+  bar.style.width = '0%';
+  wrap.classList.add('hidden');
+}
+
+function startPostUpdateReloadWatcher() {
+  if (state.postUpdateReloadTimer) {
+    clearInterval(state.postUpdateReloadTimer);
+    state.postUpdateReloadTimer = null;
+  }
+
+  let attempts = 0;
+  const maxAttempts = 180; // ~3 minutes at 1s interval
+  setUpdateProgress(100, 'Update requested. Waiting for service restart and page reload...');
+
+  state.postUpdateReloadTimer = setInterval(async () => {
+    attempts += 1;
+    try {
+      const response = await fetch('/status?ts=' + Date.now(), { cache: 'no-store' });
+      if (response.ok) {
+        clearInterval(state.postUpdateReloadTimer);
+        state.postUpdateReloadTimer = null;
+        window.location.reload();
+        return;
+      }
+    } catch {}
+
+    if (attempts >= maxAttempts) {
+      clearInterval(state.postUpdateReloadTimer);
+      state.postUpdateReloadTimer = null;
+      clearUpdateProgress();
+      setStatus('Update applied, but auto-reload timed out. Refresh this page manually.', false);
+    }
+  }, 1000);
+}
+
+async function applyUpdate() {
+  const releaseMode = document.getElementById('releaseMode').value;
+  const selectedTag = document.getElementById('releaseVersion').value.trim();
+  state.releaseMode = releaseMode === 'prerelease' ? 'prerelease' : 'release';
+  closeConfirmModal();
+  let progress = 10;
+  setUpdateProgress(progress, 'Starting update request...');
+  state.updateProgressTimer = setInterval(() => {
+    progress = Math.min(90, progress + 6);
+    setUpdateProgress(progress, 'Downloading and preparing binary update...');
+  }, 600);
+  try {
+    state.updater = await api('/api/admin/updater/apply', {
+      method: 'POST',
+      body: JSON.stringify({
+        releaseMode: state.releaseMode,
+        tagName: selectedTag || null,
+      }),
+    });
+    if (state.updateProgressTimer) {
+      clearInterval(state.updateProgressTimer);
+      state.updateProgressTimer = null;
+    }
+    renderUpdater();
+    if (state.updater.lastApply && state.updater.lastApply.applied) {
+      setStatus('Update applied. Service restart requested. Auto-refreshing when available...', true);
+      startPostUpdateReloadWatcher();
+    } else {
+      setStatus((state.updater.lastApply && state.updater.lastApply.reason) || 'No update applied.', true);
+      setTimeout(() => {
+        clearUpdateProgress();
+      }, 1800);
+    }
+  } catch (error) {
+    clearUpdateProgress();
+    setStatus(error.message, false);
+  }
+}
+
+function shouldAutoOpenOnboarding() {
+  const onboarding = getOnboardingStatus();
+  return !onboarding.completed;
+}
+
+async function runOnboardingStepAction(action) {
+  const payload = await api('/api/admin/onboarding/step', {
+    method: 'POST',
+    body: JSON.stringify({ action }),
+  });
+  if (state.envConfig && payload && payload.onboarding) {
+    state.envConfig.onboarding = payload.onboarding;
+  }
+  if (state.auth && payload && payload.onboarding) {
+    state.auth.onboarding = payload.onboarding;
+  }
+  renderSetupStatusCard();
+  renderOnboardingStep();
+  return payload;
+}
+
+async function completeOnboarding() {
+  try {
+    const payload = await api('/api/admin/onboarding/complete', { method: 'POST' });
+    if (state.envConfig) {
+      state.envConfig.onboarding = payload.onboarding;
+    }
+    if (state.auth) {
+      state.auth.onboarding = payload.onboarding;
+    }
+    renderSetupStatusCard();
+    hideOnboardingModal();
+    await refreshAll();
+    setStatus(payload.message || 'Setup marked complete.', true);
+  } catch (error) {
+    setStatus(error.message, false);
+  }
+}
+
+async function resetOnboarding() {
+  try {
+    const payload = await runOnboardingStepAction('reset');
+    showOnboardingModal();
+    switchTab('settings', { persist: false });
+    setStatus((payload && payload.message) || 'Setup marked incomplete.', true);
+  } catch (error) {
+    setStatus(error.message, false);
+  }
+}
+
+async function refreshAll() {
+  const preferredTab = state.preferredTab || readStoredTab();
+  await refreshAuthState();
+  await refreshEnvConfig();
+  const onboarding = getOnboardingStatus();
+  if (!onboarding.completed) {
+    switchTab('settings', { persist: false });
+    showOnboardingModal();
+    return;
+  }
+  await refreshAdapters();
+  await Promise.all([refreshSources(), refreshAbout(), refreshUpdater(), refreshBotRuntime()]);
+  if (state.activeGuildId) {
+    await Promise.all([refreshHome(), refreshUsers()]);
+  }
+  switchTab(preferredTab, { persist: false });
+}
+
+document.querySelectorAll('.tab-btn').forEach((btn) => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+});
+
+document.getElementById('refreshUsers').addEventListener('click', async () => {
+  try {
+    if (!state.activeGuildId) {
+      setStatus('No active guild selected.', false);
+      return;
+    }
+    await refreshUsers();
+    await refreshHome();
+    setStatus('Users refreshed.', true);
+  } catch (error) {
+    setStatus(error.message, false);
+  }
+});
+
+document.getElementById('closeUserDetails').addEventListener('click', () => {
+  clearSelectedUserView();
+  renderUsers();
+});
+
+document.getElementById('userSearch').addEventListener('input', (event) => {
+  state.userSearch = event.target.value || '';
+  renderUsers();
+});
+
+document.getElementById('saveSettings').addEventListener('click', saveSettings);
+document.getElementById('deleteUser').addEventListener('click', deleteUser);
+document.getElementById('addTracked').addEventListener('click', addTracked);
+document.getElementById('addSource').addEventListener('click', addSourceDraft);
+document.getElementById('saveSources').addEventListener('click', saveSources);
+document.getElementById('saveEnv').addEventListener('click', saveEnvConfig);
+document.getElementById('openOnboardingBtn').addEventListener('click', () => {
+  window.location.href = '/onboarding';
+});
+document.getElementById('resetOnboardingBtn').addEventListener('click', resetOnboarding);
+document.getElementById('copyDashboardCallbackUrl').addEventListener('click', async () => {
+  const value = String(document.getElementById('envDashboardCallbackUrl').value || '').trim();
+  if (!value) {
+    setStatus('Callback URL is not available yet.', false);
+    return;
+  }
+  try {
+    await copyTextToClipboard(value);
+    setStatus('OAuth callback URL copied.', true);
+  } catch (error) {
+    setStatus('Could not copy callback URL: ' + (error.message || error), false);
+  }
+});
+document.getElementById('copyInviteUrl').addEventListener('click', async () => {
+  const value = String(document.getElementById('homeOauthInviteUrl').value || '').trim();
+  if (!value) {
+    setStatus('Invite URL is not available yet.', false);
+    return;
+  }
+  try {
+    await copyTextToClipboard(value);
+    setStatus('Invite URL copied.', true);
+  } catch (error) {
+    setStatus('Could not copy invite URL: ' + (error.message || error), false);
+  }
+});
+document.getElementById('openInviteUrl').addEventListener('click', () => {
+  const value = String(document.getElementById('homeOauthInviteUrl').value || '').trim();
+  if (!value) {
+    setStatus('Invite URL is not available yet.', false);
+    return;
+  }
+  window.open(value, '_blank', 'noopener,noreferrer');
+});
+document.getElementById('startBot').addEventListener('click', () => runBotAction('start'));
+document.getElementById('stopBot').addEventListener('click', () => runBotAction('stop'));
+document.getElementById('restartBot').addEventListener('click', () => runBotAction('restart'));
+document.getElementById('checkUpdate').addEventListener('click', checkForUpdates);
+document.getElementById('applyUpdate').addEventListener('click', openUpdateConfirmModal);
+document.getElementById('confirmModalCancel').addEventListener('click', () => settleConfirmModal(false));
+document.getElementById('confirmModalAccept').addEventListener('click', () => settleConfirmModal(true));
+document.getElementById('confirmModal').addEventListener('click', (event) => {
+  if (event.target && event.target.id === 'confirmModal') {
+    settleConfirmModal(false);
+  }
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && state.confirmAction) {
+    settleConfirmModal(false);
+  }
+});
+document.getElementById('releaseMode').addEventListener('change', () => {
+  state.releaseMode = document.getElementById('releaseMode').value === 'prerelease' ? 'prerelease' : 'release';
+  document.getElementById('releaseVersion').value = '';
+  state.updaterAutoChecked = false;
+  renderUpdater();
+});
+document.getElementById('activeGuildSelect').addEventListener('change', async (event) => {
+  const onboarding = getOnboardingStatus();
+  if (!onboarding.completed) {
+    setStatus('Finish onboarding first.', false);
+    return;
+  }
+  state.activeGuildId = String(event.target.value || '').trim();
+  try {
+    localStorage.setItem(GUILD_STORAGE_KEY, state.activeGuildId);
+  } catch {}
+  clearSelectedUserView();
+  if (!state.activeGuildId) return;
+  try {
+    await Promise.all([refreshHome(), refreshUsers()]);
+    setStatus('Active guild updated.', true);
+  } catch (error) {
+    setStatus(error.message, false);
+  }
+});
+document.getElementById('authLoginBtn').addEventListener('click', () => {
+  window.location.href = '/auth/discord/login';
+});
+document.getElementById('onboardingPrevBtn').addEventListener('click', async () => {
+  try {
+    const payload = await runOnboardingStepAction('prev');
+    setStatus((payload && payload.message) || 'Returned to the previous step.', true);
+  } catch (error) {
+    setStatus(error.message, false);
+  }
+});
+document.getElementById('onboardingSaveContinueBtn').addEventListener('click', async () => {
+  try {
+    const onboarding = getOnboardingStatus();
+    const currentStep = Number(onboarding.currentStep || 1);
+    const envResult = await saveEnvConfig({ silent: true });
+    if (currentStep === 1) {
+      const payload = await runOnboardingStepAction('save_and_verify');
+      setStatus((payload && payload.message) || 'Step verified.', true);
+      return;
+    }
+    renderOnboardingStep();
+    setStatus((envResult && envResult.message) || 'Settings saved. Complete external action, then confirm this step.', true);
+  } catch (error) {
+    setStatus(error.message, false);
+  }
+});
+document.getElementById('onboardingConfirmBtn').addEventListener('click', async () => {
+  try {
+    const payload = await runOnboardingStepAction('confirm_external');
+    setStatus((payload && payload.message) || 'External step confirmed.', true);
+  } catch (error) {
+    setStatus(error.message, false);
+  }
+});
+document.getElementById('onboardingCompleteBtn').addEventListener('click', completeOnboarding);
+document.getElementById('onboardingResetBtn').addEventListener('click', resetOnboarding);
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  try {
+    await api('/auth/logout', { method: 'POST' });
+    window.location.href = '/login';
+    setStatus('Logged out.', true);
+  } catch (error) {
+    setStatus(error.message, false);
+  }
+});
+
+(async () => {
+  try {
+    clearTabSelection();
+    try {
+      state.preferredTab = readStoredTab();
+    } catch {
+      state.preferredTab = FALLBACK_TAB;
+      state.activeTab = FALLBACK_TAB;
+    }
+    await refreshAuthState();
+    if (!state.auth.authenticated) {
+      window.location.replace('/login');
+      return;
+    }
+    await refreshAll();
+    startLiveRefreshLoop();
+    if (shouldAutoOpenOnboarding()) {
+      window.location.replace('/onboarding');
+      return;
+    }
+    setStatus('Admin dashboard ready.', true);
+  } catch (error) {
+    setStatus(error.message, false);
+  }
+})();
+</script>
+</body>
+</html>

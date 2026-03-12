@@ -11,7 +11,8 @@ Manga Tracker is an open-source Discord bot designed to help manga enthusiasts s
 - Receive automatic DM updates on a custom interval (**6 hours to 7 days**).
 - Manually check updates at any time.
 - Export and import your tracked manga list to/from JSON files.
-- Configure supported manga source domains in `manga-sources.json`.
+- Web dashboard for admin management of users, tracked manga, and settings.
+- Configure dynamic source metadata in `manga-sources.json` (`key`, `adapter`, `enabled`, hosts, URLs).
 
 ## Commands
 
@@ -57,18 +58,80 @@ npm -v
    git clone https://github.com/TheDoctorTTV/manga-tracker-discord-bot.git
    cd manga-tracker-discord-bot
    ```
-2. Create your environment file:
+2. Create your environment file (optional, auto-created on first start):
    ```bash
    cp .env.example .env
    ```
-3. Edit `.env`:
+3. Edit `.env` (or use the dashboard **Settings -> Environment** section):
    ```env
    DISCORD_TOKEN=your_discord_bot_token
+   DASHBOARD_PORT=9898
+   DASHBOARD_HOST=0.0.0.0
+   OAUTH_URL=
+   DISCORD_CLIENT_ID=
+   DISCORD_OAUTH_SCOPES=bot applications.commands
+   DISCORD_OAUTH_PERMISSIONS=0
+   DISCORD_OAUTH_GUILD_ID=
+   DASHBOARD_AUTH_ENABLED=false
+   DASHBOARD_PUBLIC_URL=
+   DISCORD_AUTH_CLIENT_ID=
+   DISCORD_AUTH_CLIENT_SECRET=
+   DASHBOARD_AUTH_SESSION_HOURS=12
    ```
 4. Install dependencies:
    ```bash
    npm ci
    ```
+
+### Discord OAuth / Bot Invite Setup (Self-Host)
+
+Use this to generate a working invite URL for your hosted bot.
+
+1. Open the [Discord Developer Portal](https://discord.com/developers/applications) and create/select your application.
+2. Go to **Bot** and create a bot user (if not already created), then copy the bot token into `DISCORD_TOKEN`.
+3. Go to **General Information** and copy **Application ID** into `DISCORD_CLIENT_ID`.
+4. Save OAuth env values in `.env` or dashboard **Settings -> Environment**:
+   ```env
+   DISCORD_CLIENT_ID=123456789012345678
+   DISCORD_OAUTH_SCOPES=bot applications.commands
+   DISCORD_OAUTH_PERMISSIONS=0
+   DISCORD_OAUTH_GUILD_ID=
+   OAUTH_URL=
+   ```
+5. Open the dashboard **Home** tab and use **Bot Invite URL** (copy/open buttons) to invite the bot.
+
+For your own server (preselected + locked in invite flow):
+```env
+DISCORD_OAUTH_GUILD_ID=your_server_id
+```
+
+OAuth env reference:
+
+| Variable | Required | Example | Notes |
+| --- | --- | --- | --- |
+| `OAUTH_URL` | No | `https://discord.com/oauth2/authorize?...` | Manual override. If set, this exact URL is used. |
+| `DISCORD_CLIENT_ID` | For generated invite | `123456789012345678` | Discord Application ID (numeric). |
+| `DISCORD_OAUTH_SCOPES` | For generated invite | `bot applications.commands` | Space-separated scopes. |
+| `DISCORD_OAUTH_PERMISSIONS` | For generated invite | `0` | Non-negative integer bitset. |
+| `DISCORD_OAUTH_GUILD_ID` | No | `987654321098765432` | Optional server ID; when set, invite preselects server and disables server picker. |
+
+Invite behavior:
+- `OAUTH_URL` is set: manual URL is used.
+- `OAUTH_URL` is empty and `DISCORD_CLIENT_ID` is valid: URL is generated automatically.
+- `OAUTH_URL` is empty and `DISCORD_CLIENT_ID` is missing/invalid: invite URL is unavailable and dashboard shows why.
+
+### Discord Intents and OAuth scopes
+
+Gateway intents used by this bot:
+- `Guilds`
+- `Direct Messages`
+
+Privileged gateway intents currently required:
+- None (`Message Content`, `Server Members`, and `Presence` are not required).
+
+OAuth scopes used:
+- Bot invite URL: `bot applications.commands`
+- Dashboard login OAuth: `identify guilds`
 
 ### Quick local run (manual)
 
@@ -76,33 +139,126 @@ npm -v
 npm start
 ```
 
-## Run as a systemd service (recommended)
-
-This repo includes:
-- `systemd/manga-tracker-discord-bot.service` (template)
-- `scripts/bootstrap.sh` (installs Node.js 20 via NVM, then runs setup)
-- `scripts/setup.sh` (installs dependencies + registers service)
-- `scripts/update.sh` (pulls latest + restarts service)
-
-### Setup
-
-Fresh server (recommended):
-```bash
-./scripts/bootstrap.sh
+Dashboard URL (default bind):
+```text
+http://<server-ip-or-domain>:9898
 ```
 
-If Node.js/npm are already installed:
+On fresh install, the app opens full-screen onboarding at `/onboarding`.
+After onboarding is completed, dashboard auth is enabled automatically and users authenticate through `/login`.
+It includes admin tabs for `Home`, `Users`, `Settings`, and `About`.
 
-Run:
-   ```bash
-   ./scripts/setup.sh
-   ```
+### Dashboard Discord OAuth Setup
+
+Choose one active dashboard base URL strategy (single active URL only):
+
+1. Tailscale/MagicDNS + port (recommended):
+   - Example base URL: `http://your-host-or-fqdn.tailnet.ts.net:9898`
+2. Custom domain/reverse proxy (optional):
+   - Example base URL: `https://dashboard.example.com`
+
+The app always uses one active base URL via `DASHBOARD_PUBLIC_URL`.
+
+OAuth callback formula:
+- `DASHBOARD_PUBLIC_URL + /auth/discord/callback`
+
+Setup steps:
+
+1. In onboarding Step 3 (Dashboard Auth), set:
+   - `DASHBOARD_PUBLIC_URL` (base dashboard URL)
+   - `DISCORD_AUTH_CLIENT_ID`
+   - `DISCORD_AUTH_CLIENT_SECRET`
+   - `DASHBOARD_AUTH_SESSION_HOURS` (default `12`)
+2. Copy the **Computed OAuth Callback URL** from the dashboard.
+3. In Discord Developer Portal:
+   - Open your application.
+   - Go to **OAuth2 -> Redirects**.
+   - Add the exact callback URL.
+   - Save changes.
+4. Save settings, then click **Confirm External Step** in onboarding.
+5. Complete onboarding. This marks setup complete and automatically sets `DASHBOARD_AUTH_ENABLED=true`.
+6. Login via Discord. Access is granted only if your Discord account has `ADMINISTRATOR` in at least one guild, and the dashboard can manage guilds where both your account and the running bot have access.
+
+Troubleshooting `redirect_uri_mismatch`:
+- Ensure the callback in Discord exactly matches computed callback URL (character-for-character).
+- Common mistakes:
+  - Missing `:9898` port for Tailscale URL.
+  - Wrong scheme (`http` vs `https`).
+  - Old/stale hostname after URL change.
+  - Extra trailing slash or path mismatch.
+
+### Guild-scoped dashboard behavior
+
+- Dashboard user operations are scoped by **Active Guild**.
+- User settings and tracked manga are stored per `(guildId, userId)`.
+- Existing legacy global user files remain readable as fallback in guild views and are labeled as legacy.
+- New edits/writes from dashboard are always saved to guild-scoped records.
+
+## Run as a systemd service (recommended)
+
+Quick setup (stable release, no clone required):
+```bash
+curl -fsSL -o manga-tracker-linux.tar.gz https://github.com/TheDoctorTTV/manga-tracker-discord-bot/releases/latest/download/manga-tracker-linux.tar.gz && tar -xzf manga-tracker-linux.tar.gz && cd manga-tracker-linux && sudo DISCORD_TOKEN=your_discord_bot_token ./install_systemd_service.sh && cd .. && rm -f manga-tracker-linux.tar.gz
+```
+
+Quick setup (latest prerelease, no clone required):
+```bash
+curl -fsSL -o manga-tracker-linux.tar.gz "$(curl -fsSL https://api.github.com/repos/TheDoctorTTV/manga-tracker-discord-bot/releases | jq -r '[.[] | select(.prerelease == true and .draft == false)][0].assets[] | select(.name == "manga-tracker-linux.tar.gz") | .browser_download_url')" && tar -xzf manga-tracker-linux.tar.gz && cd manga-tracker-linux && sudo DISCORD_TOKEN=your_discord_bot_token ./install_systemd_service.sh && cd .. && rm -f manga-tracker-linux.tar.gz
+```
+
+Prerelease command note: requires `jq` to parse the GitHub Releases API response.
+
+What this does:
+- Downloads the latest Linux release package from GitHub Releases.
+- Extracts the package and runs the bundled installer script.
+- Installs the bundled binary to `/opt/manga-tracker-discord-bot/manga-tracker`.
+- Creates/enables/starts `manga-tracker-discord-bot.service`.
+- Uses `/etc/manga-tracker-discord-bot.env` for environment variables.
 
 Optional overrides when needed:
-- `BOT_USER=<linux-user> ./scripts/setup.sh`
-- `BOT_WORKDIR=/absolute/path/to/repo ./scripts/setup.sh`
-- `ENV_FILE=/absolute/path/to/.env ./scripts/setup.sh`
-- `NODE_BIN=/usr/bin/node ./scripts/setup.sh`
+- `SERVICE_NAME=manga-tracker-discord-bot`
+- `BOT_USER=<linux-user>`
+- `BOT_GROUP=<linux-group>`
+- `INSTALL_DIR=/opt/manga-tracker-discord-bot`
+- `BINARY_NAME=manga-tracker`
+- `ENV_FILE=/etc/manga-tracker-discord-bot.env`
+- `DASHBOARD_HOST=0.0.0.0`
+- `DASHBOARD_PORT=9898`
+
+Example with overrides:
+```bash
+curl -fsSL -o manga-tracker-linux.tar.gz https://github.com/TheDoctorTTV/manga-tracker-discord-bot/releases/latest/download/manga-tracker-linux.tar.gz && tar -xzf manga-tracker-linux.tar.gz && cd manga-tracker-linux && sudo DISCORD_TOKEN=your_discord_bot_token BOT_USER=manga BOT_GROUP=manga ./install_systemd_service.sh && cd .. && rm -f manga-tracker-linux.tar.gz
+```
+
+Force update (stable release, preserves existing env file if present):
+```bash
+sudo systemctl stop manga-tracker-discord-bot || true && rm -rf manga-tracker-linux && curl -fsSL -o manga-tracker-linux.tar.gz https://github.com/TheDoctorTTV/manga-tracker-discord-bot/releases/latest/download/manga-tracker-linux.tar.gz && tar -xzf manga-tracker-linux.tar.gz && cd manga-tracker-linux && sudo ./install_systemd_service.sh && cd .. && rm -f manga-tracker-linux.tar.gz
+```
+
+Force update (latest prerelease, preserves existing env file if present):
+```bash
+sudo systemctl stop manga-tracker-discord-bot || true && rm -rf manga-tracker-linux && curl -fsSL -o manga-tracker-linux.tar.gz "$(curl -fsSL https://api.github.com/repos/TheDoctorTTV/manga-tracker-discord-bot/releases | jq -r '[.[] | select(.prerelease == true and .draft == false)][0].assets[] | select(.name == "manga-tracker-linux.tar.gz") | .browser_download_url')" && tar -xzf manga-tracker-linux.tar.gz && cd manga-tracker-linux && sudo ./install_systemd_service.sh && cd .. && rm -f manga-tracker-linux.tar.gz
+```
+
+These force-update commands:
+- stop the service first
+- remove any old extracted `manga-tracker-linux` folder
+- download a fresh package
+- reinstall the binary and dashboard assets in place
+- keep using `/etc/manga-tracker-discord-bot.env` unless you explicitly change `ENV_FILE`
+
+To uninstall:
+```bash
+sudo ./uninstall_systemd_service.sh
+# non-interactive (automation):
+sudo FORCE=1 ./uninstall_systemd_service.sh
+```
+
+The uninstall script shows a bold red warning, asks for `DELETE` confirmation, and removes:
+- systemd unit
+- install directory (`/opt/manga-tracker-discord-bot`)
+- env file (`/etc/manga-tracker-discord-bot.env`)
+- extracted `manga-tracker-linux` package folder (when detected)
 
 ### Start
 
@@ -129,47 +285,81 @@ sudo systemctl status manga-tracker-discord-bot --no-pager
 journalctl -u manga-tracker-discord-bot -f
 ```
 
+### Firewall examples (UFW)
+
+Allow dashboard on all interfaces (public/LAN):
+```bash
+sudo ufw allow 9898/tcp
+```
+
+Allow dashboard only from your LAN subnet:
+```bash
+sudo ufw allow from 10.0.0.0/16 to any port 9898 proto tcp
+```
+
+Allow dashboard only over Tailscale:
+```bash
+sudo ufw allow in on tailscale0 to any port 9898 proto tcp
+```
+
+Lock down to Tailscale-only (remove broad 9898 rules):
+```bash
+sudo ufw status numbered
+sudo ufw delete allow 9898
+sudo ufw delete allow 9898/tcp
+sudo ufw allow in on tailscale0 to any port 9898 proto tcp
+sudo ufw status
+```
+
 ## Updating the deployed bot
 
-Update to latest commit on current branch:
+Use the **About** tab in the admin dashboard:
+1. Click **Check For Updates**.
+2. Click **Apply Latest Update**.
+3. A detached updater worker replaces the binary and runs `systemctl restart` for the bot service.
 
-```bash
-./scripts/update.sh
-```
+Optional updater env vars:
+- `BOT_UPDATE_BINARY_PATH` (override binary file path)
+- `BOT_UPDATE_ASSET_NAME` (force a specific release asset)
+- `BOT_UPDATE_SYSTEMD_SERVICE` (systemd service name to restart, default: `manga-tracker-discord-bot`)
 
-Update to a specific branch/tag:
+In the dashboard About tab updater:
+- Choose `Release` or `Release + Prerelease`.
+- Pick a specific version from the version dropdown (or keep latest).
 
-```bash
-./scripts/update.sh main
-# or
-./scripts/update.sh v1.0.1
-```
+## Versioning releases
 
-The update script does:
-1. `git fetch --tags origin`
-2. Checkout/pull requested ref (fast-forward only)
-3. `npm ci --omit=dev`
-4. Restart the `systemd` service
+This repo now uses `version.json` as the single source of truth for app version and release tags.
+
+- Show current version:
+  ```bash
+  npm run version:show
+  ```
+- Set a new version across `version.json`, `package.json`, and `package-lock.json`:
+  ```bash
+  npm run version:set -- 1.0.1
+  ```
+- Build/publish stable release assets using that version tag (`v1.0.1` in this example):
+  ```bash
+  npm run build:release
+  ```
+- Build/publish prerelease assets:
+  ```bash
+  npm run build:prerelease
+  ```
+
+Both scripts read `version.json` for `RELEASE_TAG` unless you override with `RELEASE_TAG=...`.
 
 ## Troubleshooting
 
-If you see `bash: npm: command not found`, Node.js/npm are not installed on that machine.
+If setup fails, check:
+- `DISCORD_TOKEN` is provided in the setup command or present in `/etc/manga-tracker-discord-bot.env`.
+- The release package asset `manga-tracker-linux.tar.gz` exists on the latest release.
+- `systemd` is available and running on that machine.
 
-Install Node.js 20 LTS with NVM:
+Then rerun setup:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-source ~/.bashrc
-nvm install 20
-nvm use 20
-node -v
-npm -v
-```
-
-Then rerun setup (or just use bootstrap):
-```bash
-./scripts/bootstrap.sh
-# or
-./scripts/setup.sh
+curl -fsSL -o manga-tracker-linux.tar.gz https://github.com/TheDoctorTTV/manga-tracker-discord-bot/releases/latest/download/manga-tracker-linux.tar.gz && tar -xzf manga-tracker-linux.tar.gz && cd manga-tracker-linux && sudo DISCORD_TOKEN=your_discord_bot_token ./install_systemd_service.sh && cd .. && rm -f manga-tracker-linux.tar.gz
 ```
 
 ## Contributing

@@ -3,3 +3,5 @@ node_modules
 clear-commands.js
 manga.json
 manga_data
+.build
+dist
