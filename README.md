@@ -232,6 +232,23 @@ Example with overrides:
 curl -fsSL -o manga-tracker-linux.tar.gz https://github.com/TheDoctorTTV/manga-tracker-discord-bot/releases/latest/download/manga-tracker-linux.tar.gz && tar -xzf manga-tracker-linux.tar.gz && cd manga-tracker-linux && sudo DISCORD_TOKEN=your_discord_bot_token BOT_USER=manga BOT_GROUP=manga ./install_systemd_service.sh && cd .. && rm -f manga-tracker-linux.tar.gz
 ```
 
+Force update (stable release, preserves existing env file if present):
+```bash
+sudo systemctl stop manga-tracker-discord-bot || true && rm -rf manga-tracker-linux && curl -fsSL -o manga-tracker-linux.tar.gz https://github.com/TheDoctorTTV/manga-tracker-discord-bot/releases/latest/download/manga-tracker-linux.tar.gz && tar -xzf manga-tracker-linux.tar.gz && cd manga-tracker-linux && sudo ./install_systemd_service.sh && cd .. && rm -f manga-tracker-linux.tar.gz
+```
+
+Force update (latest prerelease, preserves existing env file if present):
+```bash
+sudo systemctl stop manga-tracker-discord-bot || true && rm -rf manga-tracker-linux && curl -fsSL -o manga-tracker-linux.tar.gz "$(curl -fsSL https://api.github.com/repos/TheDoctorTTV/manga-tracker-discord-bot/releases | jq -r '[.[] | select(.prerelease == true and .draft == false)][0].assets[] | select(.name == "manga-tracker-linux.tar.gz") | .browser_download_url')" && tar -xzf manga-tracker-linux.tar.gz && cd manga-tracker-linux && sudo ./install_systemd_service.sh && cd .. && rm -f manga-tracker-linux.tar.gz
+```
+
+These force-update commands:
+- stop the service first
+- remove any old extracted `manga-tracker-linux` folder
+- download a fresh package
+- reinstall the binary and dashboard assets in place
+- keep using `/etc/manga-tracker-discord-bot.env` unless you explicitly change `ENV_FILE`
+
 To uninstall:
 ```bash
 sudo ./uninstall_systemd_service.sh
