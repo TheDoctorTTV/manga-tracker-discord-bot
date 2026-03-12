@@ -94,6 +94,10 @@ test('saves and reloads dashboard auth env keys', () => {
   assert.equal(config.dashboardAuth.configured, true);
   assert.deepEqual(config.dashboardAuth.managedGuildIds, ['111111111111111111', '222222222222222222']);
   assert.equal(config.dashboardAuth.callbackUrl, 'https://example.com/auth/discord/callback');
+  assert.equal(
+    config.dashboardAuth.callbackHelpText,
+    'Ready. Add this exact URL to Discord Developer Portal -> OAuth2 -> Redirects.'
+  );
 });
 
 test('rejects malformed DASHBOARD_MANAGED_GUILD_IDS', () => {
@@ -133,6 +137,12 @@ test('computes onboarding readiness from bot, invite, and auth state', () => {
   assert.equal(config.onboarding.steps[2].blockedReason, 'Complete Step 2 first.');
   assert.equal(config.onboarding.readyToComplete, false);
   assert.deepEqual(config.onboarding.missing, ['DISCORD_TOKEN', 'BOT_INVITE_READY', 'DASHBOARD_AUTH_READY']);
+  assert.equal(
+    config.onboarding.display.summary,
+    'Completed: no • Current step: 1 • Ready to complete: no'
+  );
+  assert.equal(config.onboarding.display.checklistItems.length, 3);
+  assert.match(config.onboarding.display.warningMessage, /Setup is not complete/);
 });
 
 test('persists onboarding completed flag and supports drift state', () => {

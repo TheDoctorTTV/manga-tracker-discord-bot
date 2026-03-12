@@ -122,6 +122,7 @@ test(
         body: JSON.stringify({ action: 'save_and_verify' }),
       });
       assert.equal(response.status, 200);
+      assert.equal(response.payload.message, 'Step verified.');
       assert.equal(response.payload.onboarding.currentStep, 2);
 
       response = await requestJson(port, '/api/admin/onboarding/step', {
@@ -145,6 +146,7 @@ test(
         body: JSON.stringify({ action: 'confirm_external' }),
       });
       assert.equal(response.status, 200);
+      assert.equal(response.payload.message, 'External step confirmed.');
       assert.equal(response.payload.onboarding.currentStep, 3);
       assert.equal(response.payload.onboarding.confirmations.inviteConfirmed, true);
 
@@ -173,6 +175,7 @@ test(
         method: 'POST',
       });
       assert.equal(response.status, 200);
+      assert.equal(response.payload.message, 'Setup marked complete.');
       assert.equal(response.payload.onboarding.completed, true);
     } finally {
       await new Promise((resolve) => server.close(resolve));

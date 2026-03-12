@@ -36,6 +36,21 @@ body {
   font-family: "Segoe UI", Tahoma, Arial, sans-serif;
 }
 
+body,
+button,
+input,
+select,
+textarea,
+small,
+strong,
+label,
+p,
+div,
+pre,
+a {
+  overflow-wrap: anywhere;
+}
+
 h1, h2, h3 {
   margin: 0 0 8px;
   line-height: 1.2;
@@ -215,6 +230,24 @@ code {
   margin-bottom: 2px;
 }
 
+.status-copy,
+.status-actions,
+.section-head > *,
+.panel-head > *,
+.hero-copy,
+.hero-chip-row,
+.info-strip,
+#setupStatusChecklist,
+#onboardingReadiness,
+#confirmModalBody,
+#authGateBody,
+#onboardingBody,
+#aboutRepo,
+#aboutUpdater,
+#botRuntimeStatus {
+  min-width: 0;
+}
+
 .status-actions {
   margin: 0;
   align-items: end;
@@ -255,7 +288,7 @@ code {
 
 .live-meta {
   text-align: right;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .grid {
@@ -294,6 +327,7 @@ select,
 button,
 textarea {
   width: 100%;
+  max-width: 100%;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--card-2);
@@ -527,6 +561,30 @@ button.warn:hover {
   margin-bottom: 10px;
 }
 
+.user-item-head,
+.tracked-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.user-item-head {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.user-item small,
+.tracked-copy small,
+.tracked-copy strong,
+.user-item strong,
+.card,
+.detail-card,
+.settings-section,
+.status,
+.modal-panel {
+  min-width: 0;
+}
+
 .user-item:hover {
   background: var(--btn2-hover);
   border-color: var(--border-strong);
@@ -551,6 +609,7 @@ button.warn:hover {
   margin-left: 6px;
   background: #1f3248;
   border: 1px solid #2e4c70;
+  max-width: 100%;
 }
 
 .tracked-row,
@@ -578,6 +637,7 @@ button.warn:hover {
 .source-row > div {
   display: grid;
   align-content: start;
+  min-width: 0;
 }
 
 .source-row > button,
@@ -711,6 +771,8 @@ pre {
 
 .modal-panel {
   width: min(560px, 100%);
+  max-height: min(90vh, 720px);
+  overflow: auto;
 }
 
 .modal-panel p {
@@ -774,6 +836,10 @@ pre {
     justify-content: flex-start;
   }
 
+  .status-actions select {
+    min-width: 0;
+  }
+
   .list {
     max-height: 48vh;
   }
@@ -824,6 +890,10 @@ pre {
   }
 
   .tracked-row {
+    grid-template-columns: 1fr;
+  }
+
+  .user-item-head {
     grid-template-columns: 1fr;
   }
 }

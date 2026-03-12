@@ -28,6 +28,26 @@ const MANAGED_ENV_DEFAULTS = {
 const DEFAULT_ENV_FILE_PATH = path.resolve(process.cwd(), '.env');
 const ENV_FILE_PATH = process.env.BOT_ENV_FILE ? path.resolve(process.env.BOT_ENV_FILE) : DEFAULT_ENV_FILE_PATH;
 
+function buildChecklistDisplayItems(readiness) {
+  return [
+    {
+      key: 'botConfigured',
+      label: 'Bot token configured',
+      complete: Boolean(readiness.botConfigured),
+    },
+    {
+      key: 'botInviteReady',
+      label: 'Bot invite ready',
+      complete: Boolean(readiness.botInviteReady),
+    },
+    {
+      key: 'dashboardAuthReady',
+      label: 'Dashboard auth ready',
+      complete: Boolean(readiness.dashboardAuthReady),
+    },
+  ];
+}
+
 function parseEnvFile(content) {
   const lines = String(content || '').split(/\r?\n/);
   const entries = [];
@@ -137,6 +157,9 @@ function getDashboardAuthConfig(values) {
     managedGuildIds,
     sessionHours,
     missing,
+    callbackHelpText: publicUrl
+      ? 'Ready. Add this exact URL to Discord Developer Portal -> OAuth2 -> Redirects.'
+      : 'Callback URL unavailable. Set DASHBOARD_PUBLIC_URL to generate it.',
   };
 }
 
@@ -221,6 +244,28 @@ function getDashboardOnboardingConfig(values, oauthInvite, dashboardAuth) {
   }
 
   const readyToComplete = steps.every((step) => step.complete);
+  const readiness = {
+    botConfigured,
+    botInviteReady,
+    dashboardAuthReady,
+  };
+  const checklistItems = buildChecklistDisplayItems(readiness);
+  const hasDrift = completed && !readyToComplete;
+  const warningMessage =
+    !completed || hasDrift
+      ? `${
+          completed
+            ? 'Setup drift detected: required config became incomplete after setup was marked complete.'
+            : 'Setup is not complete. Run onboarding before exposing this dashboard publicly.'
+        }${hints.length ? ` ${hints[0]}` : ''}`
+      : '';
+  const summary =
+    'Completed: ' +
+    (completed ? 'yes' : 'no') +
+    ' • Current step: ' +
+    String(currentStep || 1) +
+    ' • Ready to complete: ' +
+    (readyToComplete ? 'yes' : 'no');
 
   return {
     completed,
@@ -230,14 +275,18 @@ function getDashboardOnboardingConfig(values, oauthInvite, dashboardAuth) {
       callbackConfirmed,
     },
     steps,
-    readiness: {
-      botConfigured,
-      botInviteReady,
-      dashboardAuthReady,
-    },
+    readiness,
     readyToComplete,
     missing,
     hints,
+    display: {
+      summary,
+      checklistItems,
+      warningMessage,
+      lockedTabTooltip: 'Complete onboarding in Settings to unlock this tab.',
+      unavailableMessage: 'Setup state unavailable',
+      unavailableBody: 'Refresh the page to reload onboarding state.',
+    },
   };
 }
 

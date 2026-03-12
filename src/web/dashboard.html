@@ -391,7 +391,21 @@
   </div>
 </div>
 
+<script src="/dashboardTabState.js"></script>
 <script>
+const tabStateApi = window.DashboardTabState || {};
+const VALID_TABS = Array.isArray(tabStateApi.VALID_TABS) ? tabStateApi.VALID_TABS : ['home', 'users', 'settings', 'about'];
+const FALLBACK_TAB = typeof tabStateApi.FALLBACK_TAB === 'string' ? tabStateApi.FALLBACK_TAB : 'settings';
+const resolveDashboardTab =
+  typeof tabStateApi.resolveDashboardTab === 'function'
+    ? tabStateApi.resolveDashboardTab
+    : (tabKey, options = {}) => {
+        const normalized = String(tabKey || '').trim().toLowerCase();
+        if (!VALID_TABS.includes(normalized)) return FALLBACK_TAB;
+        if (options.onboardingCompleted !== true && normalized !== FALLBACK_TAB) return FALLBACK_TAB;
+        return normalized;
+      };
+
 const state = {
   home: null,
   users: [],
@@ -413,7 +427,7 @@ const state = {
   auth: null,
   activeGuildId: '',
   managedGuildIds: [],
-  activeTab: 'settings',
+  activeTab: FALLBACK_TAB,
   lastHomeRefreshAt: 0,
   lastAboutRefreshAt: 0,
   liveRefreshTimer: null,
@@ -439,12 +453,42 @@ function setUserDetailsVisible(visible) {
 
 function readStoredTab() {
   try {
-    const savedTab = String(localStorage.getItem(TAB_STORAGE_KEY) || '').trim().toLowerCase();
-    if (savedTab && ['home', 'users', 'settings', 'about'].includes(savedTab)) {
-      return savedTab;
-    }
+    return resolveDashboardTab(localStorage.getItem(TAB_STORAGE_KEY), { onboardingCompleted: true });
   } catch {}
-  return 'settings';
+  return FALLBACK_TAB;
+}
+
+function getResolvedActiveTab(tabKey) {
+  const onboarding = getOnboardingStatus();
+  return resolveDashboardTab(tabKey, { onboardingCompleted: onboarding.completed === true });
+}
+
+function replaceChildren(node, children) {
+  if (!node) return;
+  node.replaceChildren(...children.filter(Boolean));
+}
+
+function createTextNodeElement(tagName, text, className) {
+  const el = document.createElement(tagName);
+  if (className) el.className = className;
+  el.textContent = text;
+  return el;
+}
+
+function createOption(value, label) {
+  const option = document.createElement('option');
+  option.value = value;
+  option.textContent = label;
+  return option;
+}
+
+function clearSelectedUserView() {
+  state.selectedUserId = null;
+  state.selectedUserData = null;
+  setUserDetailsVisible(false);
+  document.getElementById('selectedUserTitle').textContent = 'Manage user';
+  document.getElementById('userMeta').textContent = '';
+  replaceChildren(document.getElementById('trackedList'), []);
 }
 
 function formatLiveTimestamp(value) {
@@ -510,10 +554,10 @@ function withGuildPath(path) {
 }
 
 function switchTab(tabKey, { persist = true } = {}) {
-  let nextTab = String(tabKey || '').trim().toLowerCase();
+  const requestedTab = String(tabKey || '').trim().toLowerCase();
+  const nextTab = getResolvedActiveTab(requestedTab);
   const onboarding = getOnboardingStatus();
-  if (!onboarding.completed && ['home', 'users', 'about'].includes(nextTab)) {
-    nextTab = 'settings';
+  if (requestedTab !== nextTab) {
     setStatus('Finish onboarding in Settings before using this tab.', false);
   }
   const panel = document.getElementById('tab-' + nextTab);
@@ -544,9 +588,12 @@ function switchTab(tabKey, { persist = true } = {}) {
 
 function renderHome() {
   const container = document.getElementById('homeCards');
-  container.innerHTML = '';
+  replaceChildren(container, []);
   if (!state.home) {
-    container.innerHTML = '<div class="card">No data</div>';
+    const emptyCard = document.createElement('div');
+    emptyCard.className = 'card';
+    emptyCard.textContent = 'No data';
+    container.appendChild(emptyCard);
     return;
   }
 
@@ -562,7 +609,8 @@ function renderHome() {
   for (const card of cards) {
     const el = document.createElement('div');
     el.className = 'card';
-    el.innerHTML = '<div>' + card[0] + '</div><div class="value">' + card[1] + '</div>';
+    el.appendChild(createTextNodeElement('div', card[0]));
+    el.appendChild(createTextNodeElement('div', card[1], 'value'));
     container.appendChild(el);
   }
 
@@ -588,13 +636,18 @@ function renderHome() {
 
 function renderUsers() {
   const list = document.getElementById('users');
-  list.innerHTML = '';
+  replaceChildren(list, []);
 
   const search = state.userSearch.trim().toLowerCase();
   const users = search ? state.users.filter((user) => user.userId.toLowerCase().includes(search)) : state.users;
 
   if (!users.length) {
-    list.innerHTML = '<div class="user-item" role="listitem" aria-disabled="true">No users found.</div>';
+    const empty = document.createElement('div');
+    empty.className = 'user-item';
+    empty.setAttribute('role', 'listitem');
+    empty.setAttribute('aria-disabled', 'true');
+    empty.textContent = 'No users found.';
+    list.appendChild(empty);
     return;
   }
 
@@ -604,9 +657,21 @@ function renderUsers() {
     row.type = 'button';
     row.setAttribute('role', 'listitem');
     row.setAttribute('aria-pressed', state.selectedUserId === user.userId ? 'true' : 'false');
-    row.innerHTML =
-      '<div><strong>' + user.userId + '</strong> <span class="badge">' + user.trackedCount + ' tracked</span></div>' +
-      '<small>' + user.preferredSource + ' • every ' + user.autoCheckIntervalHours + 'h' + (user.isLegacy ? ' • legacy fallback' : '') + '</small>';
+
+    const topLine = document.createElement('div');
+    topLine.className = 'user-item-head';
+    const title = document.createElement('strong');
+    title.textContent = user.userId;
+    const badge = document.createElement('span');
+    badge.className = 'badge';
+    badge.textContent = user.trackedCount + ' tracked';
+    topLine.append(title, badge);
+
+    const meta = document.createElement('small');
+    meta.textContent =
+      user.preferredSource + ' • every ' + user.autoCheckIntervalHours + 'h' + (user.isLegacy ? ' • legacy fallback' : '');
+
+    row.append(topLine, meta);
     row.addEventListener('click', () => selectUser(user.userId));
     list.appendChild(row);
   }
@@ -616,8 +681,8 @@ function populateSourceOptions() {
   const preferred = document.getElementById('preferredSource');
   const addHint = document.getElementById('addSourceHint');
 
-  preferred.innerHTML = '';
-  addHint.innerHTML = '<option value="">Use preferred source</option>';
+  replaceChildren(preferred, []);
+  replaceChildren(addHint, [createOption('', 'Use preferred source')]);
 
   const enabledSources = state.sources.sources.filter((source) => source.enabled !== false);
   for (const source of enabledSources) {
@@ -633,19 +698,21 @@ function populateSourceOptions() {
 
 function renderTracked() {
   const trackedList = document.getElementById('trackedList');
-  trackedList.innerHTML = '';
+  replaceChildren(trackedList, []);
 
   if (!state.selectedUserData || !state.selectedUserData.tracked.length) {
-    trackedList.innerHTML = '<p class="muted">No tracked manga for this user.</p>';
+    trackedList.appendChild(createTextNodeElement('p', 'No tracked manga for this user.', 'muted'));
     return;
   }
 
   for (const entry of state.selectedUserData.tracked) {
     const card = document.createElement('div');
     card.className = 'tracked-row';
-    card.innerHTML =
-      '<div><strong>' + (entry.title || entry.mangaId) + '</strong></div>' +
-      '<small>' + entry.source + ' • ' + entry.mangaId + '</small>';
+
+    const details = document.createElement('div');
+    details.className = 'tracked-copy';
+    details.appendChild(createTextNodeElement('strong', entry.title || entry.mangaId));
+    details.appendChild(createTextNodeElement('small', entry.source + ' • ' + entry.mangaId));
 
     const removeBtn = document.createElement('button');
     removeBtn.className = 'warn';
@@ -673,7 +740,7 @@ function renderTracked() {
       }
     });
 
-    card.appendChild(removeBtn);
+    card.append(details, removeBtn);
     trackedList.appendChild(card);
   }
 }
@@ -706,22 +773,67 @@ function renderSourcesSettings() {
     const displayNameId = 'source-display-name-' + index;
     const titleUrlId = 'source-title-url-' + index;
     const hostsId = 'source-hosts-' + index;
-    const adapterOptions = state.adapters
-      .map((adapterKey) => {
-        const selected = adapterKey === (source.adapter || source.key) ? ' selected' : '';
-        return '<option value="' + adapterKey + '"' + selected + '>' + adapterKey + '</option>';
-      })
-      .join('');
-
     const row = document.createElement('div');
     row.className = 'source-row';
-    row.innerHTML =
-      '<div><label for="' + keyId + '">Key</label><input id="' + keyId + '" data-field="key" data-index="' + index + '" value="' + (source.key || '') + '" /></div>' +
-      '<div><label for="' + adapterId + '">Adapter</label><select id="' + adapterId + '" data-field="adapter" data-index="' + index + '">' + adapterOptions + '</select></div>' +
-      '<div><label for="' + enabledId + '">Enabled</label><input id="' + enabledId + '" data-field="enabled" data-index="' + index + '" type="checkbox"' + (source.enabled === false ? '' : ' checked') + ' /></div>' +
-      '<div><label for="' + displayNameId + '">Display Name</label><input id="' + displayNameId + '" data-field="displayName" data-index="' + index + '" value="' + (source.displayName || '') + '" /></div>' +
-      '<div><label for="' + titleUrlId + '">Title URL</label><input id="' + titleUrlId + '" data-field="titleUrl" data-index="' + index + '" value="' + (source.titleUrl || '') + '" /></div>' +
-      '<div><label for="' + hostsId + '">Hosts (comma separated)</label><input id="' + hostsId + '" data-field="hosts" data-index="' + index + '" value="' + (Array.isArray(source.hosts) ? source.hosts.join(', ') : '') + '" /></div>';
+
+    function createField(labelText, control) {
+      const wrapper = document.createElement('div');
+      const label = document.createElement('label');
+      label.htmlFor = control.id;
+      label.textContent = labelText;
+      wrapper.append(label, control);
+      return wrapper;
+    }
+
+    const keyInput = document.createElement('input');
+    keyInput.id = keyId;
+    keyInput.dataset.field = 'key';
+    keyInput.dataset.index = index;
+    keyInput.value = source.key || '';
+
+    const adapterSelect = document.createElement('select');
+    adapterSelect.id = adapterId;
+    adapterSelect.dataset.field = 'adapter';
+    adapterSelect.dataset.index = index;
+    for (const adapterKey of state.adapters) {
+      const option = createOption(adapterKey, adapterKey);
+      if (adapterKey === (source.adapter || source.key)) option.selected = true;
+      adapterSelect.appendChild(option);
+    }
+
+    const enabledInput = document.createElement('input');
+    enabledInput.id = enabledId;
+    enabledInput.dataset.field = 'enabled';
+    enabledInput.dataset.index = index;
+    enabledInput.type = 'checkbox';
+    enabledInput.checked = source.enabled !== false;
+
+    const displayNameInput = document.createElement('input');
+    displayNameInput.id = displayNameId;
+    displayNameInput.dataset.field = 'displayName';
+    displayNameInput.dataset.index = index;
+    displayNameInput.value = source.displayName || '';
+
+    const titleUrlInput = document.createElement('input');
+    titleUrlInput.id = titleUrlId;
+    titleUrlInput.dataset.field = 'titleUrl';
+    titleUrlInput.dataset.index = index;
+    titleUrlInput.value = source.titleUrl || '';
+
+    const hostsInput = document.createElement('input');
+    hostsInput.id = hostsId;
+    hostsInput.dataset.field = 'hosts';
+    hostsInput.dataset.index = index;
+    hostsInput.value = Array.isArray(source.hosts) ? source.hosts.join(', ') : '';
+
+    row.append(
+      createField('Key', keyInput),
+      createField('Adapter', adapterSelect),
+      createField('Enabled', enabledInput),
+      createField('Display Name', displayNameInput),
+      createField('Title URL', titleUrlInput),
+      createField('Hosts (comma separated)', hostsInput)
+    );
 
     const removeBtn = document.createElement('button');
     removeBtn.className = 'warn';
@@ -783,7 +895,12 @@ function renderAbout() {
   document.getElementById('aboutVersion').textContent = state.about.version;
 
   const repo = document.getElementById('aboutRepo');
-  repo.innerHTML = '<a href="' + state.about.repo + '" target="_blank" rel="noreferrer">' + state.about.repo + '</a>';
+  const link = document.createElement('a');
+  link.href = state.about.repo;
+  link.target = '_blank';
+  link.rel = 'noreferrer';
+  link.textContent = state.about.repo;
+  replaceChildren(repo, [link]);
 
   document.getElementById('aboutUpdater').textContent = state.about.updateSystem;
   document.getElementById('aboutLiveMeta').textContent = formatLiveTimestamp(state.lastAboutRefreshAt);
@@ -815,11 +932,9 @@ function renderEnvSettings() {
   const callbackCopyBtn = document.getElementById('copyDashboardCallbackUrl');
   callbackInput.value = callbackUrl;
   callbackCopyBtn.disabled = !callbackUrl;
-  if (callbackUrl) {
-    callbackMeta.textContent = 'Ready. Add this exact URL to Discord Developer Portal -> OAuth2 -> Redirects.';
-  } else {
-    callbackMeta.textContent = 'Callback URL unavailable. Set DASHBOARD_PUBLIC_URL to generate it.';
-  }
+  callbackMeta.textContent =
+    (state.envConfig.dashboardAuth && state.envConfig.dashboardAuth.callbackHelpText) ||
+    'Callback URL unavailable. Set DASHBOARD_PUBLIC_URL to generate it.';
 
   document.getElementById('envMeta').textContent = 'Env file: ' + (state.envConfig.envFilePath || 'unknown');
   renderSetupStatusCard();
@@ -844,6 +959,14 @@ function getOnboardingStatus() {
     },
     missing: [],
     hints: [],
+    display: {
+      summary: '',
+      checklistItems: [],
+      warningMessage: '',
+      lockedTabTooltip: 'Complete onboarding in Settings to unlock this tab.',
+      unavailableMessage: 'Setup state unavailable',
+      unavailableBody: 'Refresh the page to reload onboarding state.',
+    },
   };
 }
 
@@ -854,32 +977,17 @@ function renderSetupStatusCard() {
   const warning = document.getElementById('setupWarningBanner');
   if (!summary || !checklist || !warning) return;
 
-  const readiness = onboarding.readiness || {};
-  const items = [
-    ['Bot token configured', Boolean(readiness.botConfigured)],
-    ['Bot invite ready', Boolean(readiness.botInviteReady)],
-    ['Dashboard auth ready', Boolean(readiness.dashboardAuthReady)],
-  ];
+  const display = onboarding.display || {};
+  const checklistItems = Array.isArray(display.checklistItems) ? display.checklistItems : [];
 
-  summary.textContent =
-    'Completed: ' +
-    (onboarding.completed ? 'yes' : 'no') +
-    ' • Current step: ' +
-    String(onboarding.currentStep || 1) +
-    ' • Ready to complete: ' +
-    (onboarding.readyToComplete ? 'yes' : 'no');
-  checklist.innerHTML = items
-    .map((item) => (item[1] ? '[ok] ' : '[missing] ') + item[0])
-    .join('<br>');
+  summary.textContent = display.summary || '';
+  replaceChildren(
+    checklist,
+    checklistItems.map((item) => createTextNodeElement('div', (item.complete ? '[ok] ' : '[missing] ') + item.label))
+  );
 
-  const hasDrift = onboarding.completed && !onboarding.readyToComplete;
-  const incomplete = !onboarding.completed;
-  if (incomplete || hasDrift) {
-    const hintText = Array.isArray(onboarding.hints) && onboarding.hints.length ? ' • ' + onboarding.hints[0] : '';
-    warning.textContent =
-      (incomplete
-        ? 'Setup is not complete. Run onboarding before exposing this dashboard publicly.'
-        : 'Setup drift detected: required config became incomplete after setup was marked complete.') + hintText;
+  if (display.warningMessage) {
+    warning.textContent = display.warningMessage;
     warning.classList.remove('hidden');
   } else {
     warning.classList.add('hidden');
@@ -892,11 +1000,12 @@ function updateDashboardLocks() {
   const onboarding = getOnboardingStatus();
   const locked = !onboarding.completed;
   const allowedTabs = new Set(['settings']);
+  const display = onboarding.display || {};
   document.querySelectorAll('.tab-btn').forEach((btn) => {
     const tab = String(btn.dataset.tab || '').trim().toLowerCase();
     const isLockedTab = locked && !allowedTabs.has(tab);
     btn.disabled = isLockedTab;
-    btn.title = isLockedTab ? 'Complete onboarding in Settings to unlock this tab.' : '';
+    btn.title = isLockedTab ? display.lockedTabTooltip || 'Complete onboarding in Settings to unlock this tab.' : '';
   });
   const activeGuild = document.getElementById('activeGuildSelect');
   if (activeGuild) activeGuild.disabled = locked;
@@ -925,10 +1034,11 @@ function renderOnboardingStep() {
   const saveBtn = document.getElementById('onboardingSaveContinueBtn');
   const confirmBtn = document.getElementById('onboardingConfirmBtn');
   const completeBtn = document.getElementById('onboardingCompleteBtn');
+  const display = onboarding.display || {};
 
   if (!step) {
-    meta.textContent = 'Setup state unavailable';
-    body.textContent = 'Refresh the page to reload onboarding state.';
+    meta.textContent = display.unavailableMessage || 'Setup state unavailable';
+    body.textContent = display.unavailableBody || 'Refresh the page to reload onboarding state.';
     ready.textContent = '';
     prevBtn.disabled = true;
     saveBtn.disabled = true;
@@ -1157,12 +1267,7 @@ async function refreshUsers() {
   const payload = await api(withGuildPath('/api/users'));
   state.users = payload.users;
   if (state.selectedUserId && !state.users.some((user) => user.userId === state.selectedUserId)) {
-    state.selectedUserId = null;
-    state.selectedUserData = null;
-    setUserDetailsVisible(false);
-    document.getElementById('selectedUserTitle').textContent = 'Manage user';
-    document.getElementById('userMeta').textContent = '';
-    document.getElementById('trackedList').innerHTML = '';
+    clearSelectedUserView();
   }
   renderUsers();
 }
@@ -1264,14 +1369,14 @@ async function selectUser(userId) {
 async function saveSettings() {
   if (!state.selectedUserId) return setStatus('Select a user first.', false);
   try {
-    await api(withGuildPath('/api/users/' + state.selectedUserId + '/settings'), {
+    const payload = await api(withGuildPath('/api/users/' + state.selectedUserId + '/settings'), {
       method: 'PUT',
       body: JSON.stringify({
         preferredSource: document.getElementById('preferredSource').value,
         autoCheckIntervalHours: Number(document.getElementById('autoHours').value),
       }),
     });
-    setStatus('Settings updated.', true);
+    setStatus(payload.message || 'Settings updated.', true);
     await selectUser(state.selectedUserId);
     await refreshHome();
     await refreshUsers();
@@ -1293,12 +1398,7 @@ async function deleteUser() {
   try {
     await api(withGuildPath('/api/users/' + state.selectedUserId), { method: 'DELETE' });
     setStatus('User deleted.', true);
-    state.selectedUserId = null;
-    state.selectedUserData = null;
-    document.getElementById('selectedUserTitle').textContent = 'Manage user';
-    document.getElementById('userMeta').textContent = '';
-    document.getElementById('trackedList').innerHTML = '';
-    setUserDetailsVisible(false);
+    clearSelectedUserView();
     await refreshAll();
   } catch (error) {
     setStatus(error.message, false);
@@ -1376,7 +1476,7 @@ async function saveSources() {
 
 async function saveEnvConfig({ silent = false } = {}) {
   try {
-    state.envConfig = await api('/api/admin/env', {
+    const payload = await api('/api/admin/env', {
       method: 'PUT',
       body: JSON.stringify({
         values: {
@@ -1397,6 +1497,7 @@ async function saveEnvConfig({ silent = false } = {}) {
         },
       }),
     });
+    state.envConfig = payload;
     renderEnvSettings();
     await refreshAuthState();
     const onboarding = getOnboardingStatus();
@@ -1409,20 +1510,23 @@ async function saveEnvConfig({ silent = false } = {}) {
       showOnboardingModal();
       switchTab('settings', { persist: false });
     }
-    if (!silent) setStatus('Environment saved.', true);
+    if (!silent) setStatus(payload.message || 'Environment saved.', true);
+    return payload;
   } catch (error) {
     setStatus(error.message, false);
+    throw error;
   }
 }
 
 async function runBotAction(action) {
   try {
-    state.botRuntime = await api('/api/admin/bot/' + action, { method: 'POST' });
+    const payload = await api('/api/admin/bot/' + action, { method: 'POST' });
+    state.botRuntime = payload;
     renderBotRuntime();
     if (state.activeGuildId) {
       await refreshHome();
     }
-    setStatus('Bot ' + action + ' completed.', true);
+    setStatus(payload.message || 'Bot ' + action + ' completed.', true);
   } catch (error) {
     await refreshBotRuntime();
     if (state.activeGuildId) {
@@ -1614,7 +1718,7 @@ async function runOnboardingStepAction(action) {
   }
   renderSetupStatusCard();
   renderOnboardingStep();
-  return payload && payload.onboarding ? payload.onboarding : getOnboardingStatus();
+  return payload;
 }
 
 async function completeOnboarding() {
@@ -1629,7 +1733,7 @@ async function completeOnboarding() {
     renderSetupStatusCard();
     hideOnboardingModal();
     await refreshAll();
-    setStatus('Setup marked complete.', true);
+    setStatus(payload.message || 'Setup marked complete.', true);
   } catch (error) {
     setStatus(error.message, false);
   }
@@ -1637,17 +1741,17 @@ async function completeOnboarding() {
 
 async function resetOnboarding() {
   try {
-    await runOnboardingStepAction('reset');
+    const payload = await runOnboardingStepAction('reset');
     showOnboardingModal();
     switchTab('settings', { persist: false });
-    setStatus('Setup marked incomplete.', true);
+    setStatus((payload && payload.message) || 'Setup marked incomplete.', true);
   } catch (error) {
     setStatus(error.message, false);
   }
 }
 
 async function refreshAll() {
-  const preferredTab = state.activeTab || readStoredTab();
+  const preferredTab = getResolvedActiveTab(state.activeTab || readStoredTab());
   await refreshAuthState();
   await refreshEnvConfig();
   const onboarding = getOnboardingStatus();
@@ -1683,13 +1787,8 @@ document.getElementById('refreshUsers').addEventListener('click', async () => {
 });
 
 document.getElementById('closeUserDetails').addEventListener('click', () => {
-  state.selectedUserId = null;
-  state.selectedUserData = null;
-  document.getElementById('selectedUserTitle').textContent = 'Manage user';
-  document.getElementById('userMeta').textContent = '';
-  document.getElementById('trackedList').innerHTML = '';
+  clearSelectedUserView();
   renderUsers();
-  setUserDetailsVisible(false);
 });
 
 document.getElementById('userSearch').addEventListener('input', (event) => {
@@ -1774,12 +1873,7 @@ document.getElementById('activeGuildSelect').addEventListener('change', async (e
   try {
     localStorage.setItem(GUILD_STORAGE_KEY, state.activeGuildId);
   } catch {}
-  state.selectedUserId = null;
-  state.selectedUserData = null;
-  setUserDetailsVisible(false);
-  document.getElementById('selectedUserTitle').textContent = 'Manage user';
-  document.getElementById('userMeta').textContent = '';
-  document.getElementById('trackedList').innerHTML = '';
+  clearSelectedUserView();
   if (!state.activeGuildId) return;
   try {
     await Promise.all([refreshHome(), refreshUsers()]);
@@ -1793,7 +1887,8 @@ document.getElementById('authLoginBtn').addEventListener('click', () => {
 });
 document.getElementById('onboardingPrevBtn').addEventListener('click', async () => {
   try {
-    await runOnboardingStepAction('prev');
+    const payload = await runOnboardingStepAction('prev');
+    setStatus((payload && payload.message) || 'Returned to the previous step.', true);
   } catch (error) {
     setStatus(error.message, false);
   }
@@ -1802,22 +1897,22 @@ document.getElementById('onboardingSaveContinueBtn').addEventListener('click', a
   try {
     const onboarding = getOnboardingStatus();
     const currentStep = Number(onboarding.currentStep || 1);
-    await saveEnvConfig({ silent: true });
+    const envResult = await saveEnvConfig({ silent: true });
     if (currentStep === 1) {
-      await runOnboardingStepAction('save_and_verify');
-      setStatus('Step verified.', true);
+      const payload = await runOnboardingStepAction('save_and_verify');
+      setStatus((payload && payload.message) || 'Step verified.', true);
       return;
     }
     renderOnboardingStep();
-    setStatus('Settings saved. Complete external action, then confirm this step.', true);
+    setStatus((envResult && envResult.message) || 'Settings saved. Complete external action, then confirm this step.', true);
   } catch (error) {
     setStatus(error.message, false);
   }
 });
 document.getElementById('onboardingConfirmBtn').addEventListener('click', async () => {
   try {
-    await runOnboardingStepAction('confirm_external');
-    setStatus('External step confirmed.', true);
+    const payload = await runOnboardingStepAction('confirm_external');
+    setStatus((payload && payload.message) || 'External step confirmed.', true);
   } catch (error) {
     setStatus(error.message, false);
   }
@@ -1837,9 +1932,11 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
 (async () => {
   try {
     try {
-      switchTab(readStoredTab(), { persist: false });
+      state.activeTab = readStoredTab();
+      switchTab(state.activeTab, { persist: false });
     } catch {
-      switchTab('settings', { persist: false });
+      state.activeTab = FALLBACK_TAB;
+      switchTab(FALLBACK_TAB, { persist: false });
     }
     await refreshAuthState();
     if (!state.auth.authenticated) {

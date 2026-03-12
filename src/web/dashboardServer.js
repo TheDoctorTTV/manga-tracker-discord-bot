@@ -133,6 +133,7 @@ const DASHBOARD_HTML_PATH = path.join(__dirname, 'dashboard.html');
 const ONBOARDING_HTML_PATH = path.join(__dirname, 'onboarding.html');
 const LOGIN_HTML_PATH = path.join(__dirname, 'login.html');
 const DASHBOARD_CSS_PATH = path.join(__dirname, 'dashboard.css');
+const DASHBOARD_TAB_STATE_PATH = path.join(__dirname, 'dashboardTabState.js');
 const DASHBOARD_ICON_CANDIDATES = [
   path.resolve(process.cwd(), 'WebsiteLogo.ico'),
   path.resolve(process.cwd(), 'favicon.ico'),
@@ -144,6 +145,7 @@ let dashboardHtmlTemplate = null;
 let onboardingHtmlTemplate = null;
 let loginHtmlTemplate = null;
 let dashboardCss = null;
+let dashboardTabStateJs = null;
 let dashboardIcon = undefined;
 
 function loadDashboardAssets() {
@@ -153,6 +155,10 @@ function loadDashboardAssets() {
 
   if (dashboardCss === null) {
     dashboardCss = fs.readFileSync(DASHBOARD_CSS_PATH, 'utf8');
+  }
+
+  if (dashboardTabStateJs === null) {
+    dashboardTabStateJs = fs.readFileSync(DASHBOARD_TAB_STATE_PATH, 'utf8');
   }
 
   if (onboardingHtmlTemplate === null) {
@@ -189,6 +195,11 @@ function getLoginHtml() {
 function getDashboardCss() {
   loadDashboardAssets();
   return dashboardCss;
+}
+
+function getDashboardTabStateJs() {
+  loadDashboardAssets();
+  return dashboardTabStateJs;
 }
 
 function getDashboardIcon() {
@@ -364,6 +375,12 @@ function startDashboardServer({ service, updater, botController }) {
 
     if (req.method === 'GET' && pathName === '/dashboard.css') {
       sendCss(res, getDashboardCss());
+      return;
+    }
+
+    if (req.method === 'GET' && pathName === '/dashboardTabState.js') {
+      res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' });
+      res.end(getDashboardTabStateJs());
       return;
     }
 
@@ -581,7 +598,10 @@ function startDashboardServer({ service, updater, botController }) {
           sendJson(res, 400, { error: 'Bot controller is not configured' });
           return;
         }
-        sendJson(res, 200, await botController.start());
+        sendJson(res, 200, {
+          ...(await botController.start()),
+          message: 'Bot start completed.',
+        });
         return;
       }
 
@@ -590,7 +610,10 @@ function startDashboardServer({ service, updater, botController }) {
           sendJson(res, 400, { error: 'Bot controller is not configured' });
           return;
         }
-        sendJson(res, 200, await botController.stop());
+        sendJson(res, 200, {
+          ...(await botController.stop()),
+          message: 'Bot stop completed.',
+        });
         return;
       }
 
@@ -599,7 +622,10 @@ function startDashboardServer({ service, updater, botController }) {
           sendJson(res, 400, { error: 'Bot controller is not configured' });
           return;
         }
-        sendJson(res, 200, await botController.restart());
+        sendJson(res, 200, {
+          ...(await botController.restart()),
+          message: 'Bot restart completed.',
+        });
         return;
       }
 
@@ -622,7 +648,10 @@ function startDashboardServer({ service, updater, botController }) {
       if (req.method === 'PUT' && pathName === '/api/admin/env') {
         const body = await getRequestBody(req);
         const values = body && typeof body.values === 'object' ? body.values : {};
-        sendJson(res, 200, saveDashboardEnvConfig(values));
+        sendJson(res, 200, {
+          ...saveDashboardEnvConfig(values),
+          message: 'Environment saved.',
+        });
         return;
       }
 
@@ -678,10 +707,10 @@ function startDashboardServer({ service, updater, botController }) {
             const advanced = saveDashboardEnvConfig({
               DASHBOARD_ONBOARDING_STEP: String(Math.min(3, nextOnboarding.currentStep + 1)),
             });
-            sendJson(res, 200, { onboarding: advanced.onboarding });
+            sendJson(res, 200, { onboarding: advanced.onboarding, message: 'External step confirmed.' });
             return;
           }
-          sendJson(res, 200, { onboarding: nextOnboarding });
+          sendJson(res, 200, { onboarding: nextOnboarding, message: 'External step confirmed.' });
           return;
         } else if (action === 'save_and_verify') {
           if (!activeStep) {
@@ -702,7 +731,10 @@ function startDashboardServer({ service, updater, botController }) {
         }
 
         const updated = saveDashboardEnvConfig(updates);
-        sendJson(res, 200, { onboarding: updated.onboarding });
+        sendJson(res, 200, {
+          onboarding: updated.onboarding,
+          message: action === 'reset' ? 'Setup marked incomplete.' : action === 'prev' ? 'Returned to the previous step.' : 'Step verified.',
+        });
         return;
       }
 
@@ -719,7 +751,7 @@ function startDashboardServer({ service, updater, botController }) {
           DASHBOARD_AUTH_ENABLED: 'true',
           DASHBOARD_ONBOARDING_STEP: '3',
         });
-        sendJson(res, 200, { onboarding: updated.onboarding });
+        sendJson(res, 200, { onboarding: updated.onboarding, message: 'Setup marked complete.' });
         return;
       }
 
@@ -730,7 +762,7 @@ function startDashboardServer({ service, updater, botController }) {
           DASHBOARD_ONBOARDING_INVITE_CONFIRMED: 'false',
           DASHBOARD_ONBOARDING_CALLBACK_CONFIRMED: 'false',
         });
-        sendJson(res, 200, { onboarding: updated.onboarding });
+        sendJson(res, 200, { onboarding: updated.onboarding, message: 'Setup marked incomplete.' });
         return;
       }
 
@@ -870,7 +902,7 @@ function startDashboardServer({ service, updater, botController }) {
           preferredSource: body.preferredSource,
           autoCheckIntervalHours: body.autoCheckIntervalHours,
         });
-        sendJson(res, 200, { user: updated });
+        sendJson(res, 200, { user: updated, message: 'Settings updated.' });
         return;
       }
 
