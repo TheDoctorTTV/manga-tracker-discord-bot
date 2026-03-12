@@ -43,8 +43,11 @@
 
     <section id="tab-home" class="panel tab-panel" role="tabpanel" aria-labelledby="tab-btn-home">
     <div class="section-head">
-      <h2>Home</h2>
-      <small>System health and quick metrics.</small>
+      <div>
+        <h2>Home</h2>
+        <small>System health and quick metrics.</small>
+      </div>
+      <small id="homeLiveMeta" class="live-meta">Waiting for live data...</small>
     </div>
     <div class="grid two" id="homeCards"></div>
     <div class="card" style="margin-top:12px;">
@@ -82,7 +85,18 @@
           <h3 id="selectedUserTitle">Manage user</h3>
           <button id="closeUserDetails" type="button">Back To User List</button>
         </div>
-        <div id="userMeta" class="muted info-strip"></div>
+      <div id="userMeta" class="muted info-strip"></div>
+
+        <div class="user-hero">
+          <div class="hero-copy">
+            <strong>Operator Workspace</strong>
+            <small>Pick a user on the left, then edit defaults and tracked manga in modular cards.</small>
+          </div>
+          <div class="hero-chip-row">
+            <span class="hero-chip">Searchable directory</span>
+            <span class="hero-chip">Card-based editor</span>
+          </div>
+        </div>
 
         <div class="detail-grid">
           <section class="detail-card">
@@ -123,8 +137,22 @@
 
     <section id="tab-settings" class="panel tab-panel hidden" role="tabpanel" aria-labelledby="tab-btn-settings">
     <div class="section-head">
-      <h2>Settings</h2>
-      <small>Configure sources and runtime environment values.</small>
+      <div>
+        <h2>Settings</h2>
+        <small>Configure sources and runtime environment values.</small>
+      </div>
+      <small class="live-meta">Grouped into source, environment, auth, and runtime cards.</small>
+    </div>
+    <div class="settings-hero">
+      <div class="hero-copy">
+        <strong>Configuration Studio</strong>
+        <small>Use the modules below to change source behavior, deployment values, and runtime controls without leaving the dashboard.</small>
+      </div>
+      <div class="hero-chip-row">
+        <span class="hero-chip">Source tiles</span>
+        <span class="hero-chip">Secure env fields</span>
+        <span class="hero-chip">Live runtime controls</span>
+      </div>
     </div>
     <div class="settings-shell">
       <section class="settings-section">
@@ -273,8 +301,11 @@
 
     <section id="tab-about" class="panel tab-panel hidden" role="tabpanel" aria-labelledby="tab-btn-about">
     <div class="section-head">
-      <h2>About</h2>
-      <small>Build metadata and update controls.</small>
+      <div>
+        <h2>About</h2>
+        <small>Build metadata and update controls.</small>
+      </div>
+      <small id="aboutLiveMeta" class="live-meta">Waiting for live data...</small>
     </div>
     <div class="grid about-grid">
       <div class="card"><strong>Creator</strong><div id="aboutCreator"></div></div>
@@ -382,9 +413,14 @@ const state = {
   auth: null,
   activeGuildId: '',
   managedGuildIds: [],
+  activeTab: 'settings',
+  lastHomeRefreshAt: 0,
+  lastAboutRefreshAt: 0,
+  liveRefreshTimer: null,
 };
 const TAB_STORAGE_KEY = 'manga_tracker_dashboard_active_tab';
 const GUILD_STORAGE_KEY = 'manga_tracker_dashboard_active_guild';
+const LIVE_REFRESH_INTERVAL_MS = 15000;
 
 function setStatus(message, ok = true) {
   const el = document.getElementById('statusLine');
@@ -399,6 +435,21 @@ function setUserDetailsVisible(visible) {
   if (!panel) return;
   panel.classList.toggle('hidden', !visible);
   if (layout) layout.classList.toggle('has-details', visible);
+}
+
+function readStoredTab() {
+  try {
+    const savedTab = String(localStorage.getItem(TAB_STORAGE_KEY) || '').trim().toLowerCase();
+    if (savedTab && ['home', 'users', 'settings', 'about'].includes(savedTab)) {
+      return savedTab;
+    }
+  } catch {}
+  return 'settings';
+}
+
+function formatLiveTimestamp(value) {
+  if (!value) return 'Waiting for live data...';
+  return 'Live sync ' + new Date(value).toLocaleTimeString();
 }
 
 async function copyTextToClipboard(value) {
@@ -458,7 +509,7 @@ function withGuildPath(path) {
   return path + delimiter + 'guildId=' + encodeURIComponent(guildId);
 }
 
-function switchTab(tabKey) {
+function switchTab(tabKey, { persist = true } = {}) {
   let nextTab = String(tabKey || '').trim().toLowerCase();
   const onboarding = getOnboardingStatus();
   if (!onboarding.completed && ['home', 'users', 'about'].includes(nextTab)) {
@@ -482,10 +533,13 @@ function switchTab(tabKey) {
   });
   panel.classList.remove('hidden');
   panel.setAttribute('aria-hidden', 'false');
+  state.activeTab = nextTab;
 
-  try {
-    localStorage.setItem(TAB_STORAGE_KEY, nextTab);
-  } catch {}
+  if (persist) {
+    try {
+      localStorage.setItem(TAB_STORAGE_KEY, nextTab);
+    } catch {}
+  }
 }
 
 function renderHome() {
@@ -529,6 +583,7 @@ function renderHome() {
 
   document.getElementById('homeMeta').textContent =
     'Guild: ' + (state.activeGuildId || 'n/a') + ' • Uptime: ' + state.home.uptimeHuman + ' • Memory RSS: ' + state.home.memoryRssMb + ' MB';
+  document.getElementById('homeLiveMeta').textContent = formatLiveTimestamp(state.lastHomeRefreshAt);
 }
 
 function renderUsers() {
@@ -731,6 +786,7 @@ function renderAbout() {
   repo.innerHTML = '<a href="' + state.about.repo + '" target="_blank" rel="noreferrer">' + state.about.repo + '</a>';
 
   document.getElementById('aboutUpdater').textContent = state.about.updateSystem;
+  document.getElementById('aboutLiveMeta').textContent = formatLiveTimestamp(state.lastAboutRefreshAt);
 }
 
 function renderEnvSettings() {
@@ -1093,6 +1149,7 @@ async function refreshAuthState() {
 
 async function refreshHome() {
   state.home = await api(withGuildPath('/api/admin/home'));
+  state.lastHomeRefreshAt = Date.now();
   renderHome();
 }
 
@@ -1124,7 +1181,27 @@ async function refreshAdapters() {
 
 async function refreshAbout() {
   state.about = await api('/api/admin/about');
+  state.lastAboutRefreshAt = Date.now();
   renderAbout();
+}
+
+async function refreshLiveSections() {
+  if (!state.auth || !state.auth.authenticated) return;
+  const jobs = [refreshAbout()];
+  if (state.activeGuildId) {
+    jobs.push(refreshHome());
+  }
+  await Promise.all(jobs);
+}
+
+function startLiveRefreshLoop() {
+  if (state.liveRefreshTimer) return;
+  state.liveRefreshTimer = setInterval(async () => {
+    if (document.hidden) return;
+    try {
+      await refreshLiveSections();
+    } catch {}
+  }, LIVE_REFRESH_INTERVAL_MS);
 }
 
 async function refreshUpdater() {
@@ -1330,7 +1407,7 @@ async function saveEnvConfig({ silent = false } = {}) {
       }
     } else {
       showOnboardingModal();
-      switchTab('settings');
+      switchTab('settings', { persist: false });
     }
     if (!silent) setStatus('Environment saved.', true);
   } catch (error) {
@@ -1562,7 +1639,7 @@ async function resetOnboarding() {
   try {
     await runOnboardingStepAction('reset');
     showOnboardingModal();
-    switchTab('settings');
+    switchTab('settings', { persist: false });
     setStatus('Setup marked incomplete.', true);
   } catch (error) {
     setStatus(error.message, false);
@@ -1570,11 +1647,12 @@ async function resetOnboarding() {
 }
 
 async function refreshAll() {
+  const preferredTab = state.activeTab || readStoredTab();
   await refreshAuthState();
   await refreshEnvConfig();
   const onboarding = getOnboardingStatus();
   if (!onboarding.completed) {
-    switchTab('settings');
+    switchTab('settings', { persist: false });
     showOnboardingModal();
     return;
   }
@@ -1583,6 +1661,7 @@ async function refreshAll() {
   if (state.activeGuildId) {
     await Promise.all([refreshHome(), refreshUsers()]);
   }
+  switchTab(preferredTab, { persist: false });
 }
 
 document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -1758,14 +1837,9 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
 (async () => {
   try {
     try {
-      const savedTab = localStorage.getItem(TAB_STORAGE_KEY);
-      if (savedTab) {
-        switchTab(savedTab);
-      } else {
-        switchTab('settings');
-      }
+      switchTab(readStoredTab(), { persist: false });
     } catch {
-      switchTab('settings');
+      switchTab('settings', { persist: false });
     }
     await refreshAuthState();
     if (!state.auth.authenticated) {
@@ -1773,6 +1847,7 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
       return;
     }
     await refreshAll();
+    startLiveRefreshLoop();
     if (shouldAutoOpenOnboarding()) {
       window.location.replace('/onboarding');
       return;
