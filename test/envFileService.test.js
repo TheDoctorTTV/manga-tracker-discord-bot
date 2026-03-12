@@ -80,7 +80,6 @@ test('saves and reloads dashboard auth env keys', () => {
     DASHBOARD_PUBLIC_URL: 'https://example.com',
     DISCORD_AUTH_CLIENT_ID: '123456789012345678',
     DISCORD_AUTH_CLIENT_SECRET: 'super-secret',
-    DASHBOARD_MANAGED_GUILD_IDS: '111111111111111111, 222222222222222222,111111111111111111',
     DASHBOARD_AUTH_SESSION_HOURS: '12',
   });
 
@@ -89,10 +88,9 @@ test('saves and reloads dashboard auth env keys', () => {
   assert.equal(config.values.DASHBOARD_PUBLIC_URL, 'https://example.com');
   assert.equal(config.values.DISCORD_AUTH_CLIENT_ID, '123456789012345678');
   assert.equal(config.values.DISCORD_AUTH_CLIENT_SECRET, '********');
-  assert.equal(config.values.DASHBOARD_MANAGED_GUILD_IDS, '111111111111111111, 222222222222222222,111111111111111111');
   assert.equal(config.dashboardAuth.enabled, true);
   assert.equal(config.dashboardAuth.configured, true);
-  assert.deepEqual(config.dashboardAuth.managedGuildIds, ['111111111111111111', '222222222222222222']);
+  assert.deepEqual(config.dashboardAuth.managedGuildIds, []);
   assert.equal(config.dashboardAuth.callbackUrl, 'https://example.com/auth/discord/callback');
   assert.equal(
     config.dashboardAuth.callbackHelpText,
@@ -119,7 +117,6 @@ test('computes onboarding readiness from bot, invite, and auth state', () => {
     DASHBOARD_PUBLIC_URL: '',
     DISCORD_AUTH_CLIENT_ID: '',
     DISCORD_AUTH_CLIENT_SECRET: '',
-    DASHBOARD_MANAGED_GUILD_IDS: '',
     DASHBOARD_SETUP_COMPLETED: 'false',
   });
 
@@ -156,7 +153,6 @@ test('persists onboarding completed flag and supports drift state', () => {
     DASHBOARD_ONBOARDING_INVITE_CONFIRMED: 'true',
     DASHBOARD_ONBOARDING_CALLBACK_CONFIRMED: 'true',
     DASHBOARD_ONBOARDING_STEP: '3',
-    DASHBOARD_MANAGED_GUILD_IDS: '111111111111111111',
     DASHBOARD_SETUP_COMPLETED: 'true',
   });
 
@@ -198,7 +194,6 @@ test('computes step completion with external confirmations', () => {
     DASHBOARD_PUBLIC_URL: 'https://example.com',
     DISCORD_AUTH_CLIENT_ID: '123456789012345678',
     DISCORD_AUTH_CLIENT_SECRET: 'secret',
-    DASHBOARD_MANAGED_GUILD_IDS: '111111111111111111',
     DASHBOARD_ONBOARDING_STEP: '2',
     DASHBOARD_ONBOARDING_INVITE_CONFIRMED: 'true',
     DASHBOARD_ONBOARDING_CALLBACK_CONFIRMED: 'false',

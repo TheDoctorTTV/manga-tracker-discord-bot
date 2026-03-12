@@ -76,7 +76,7 @@ function computeAdminGuilds(guilds) {
 
 function computeAllowedGuilds({ guilds, managedGuildIds }) {
   const adminGuilds = computeAdminGuilds(guilds);
-  if (!Array.isArray(managedGuildIds) || managedGuildIds.length === 0) return [];
+  if (!Array.isArray(managedGuildIds) || managedGuildIds.length === 0) return adminGuilds;
   const managed = new Set(managedGuildIds);
   return adminGuilds.filter((guild) => managed.has(guild.id));
 }

@@ -24,7 +24,6 @@ const {
   exchangeDiscordCode,
   fetchDiscordIdentity,
   computeAdminGuilds,
-  computeAllowedGuilds,
 } = require('../services/dashboardAuthService');
 
 const DASHBOARD_SESSION_COOKIE = 'dashboard_session';
@@ -347,18 +346,14 @@ function startDashboardServer({ service, updater, botController }) {
     };
   }
 
-  function resolveGuildContext(requestUrl, access) {
+  async function resolveGuildContext(requestUrl, access) {
     const guildId = String(requestUrl.searchParams.get('guildId') || '').trim();
     if (!/^\d+$/.test(guildId)) {
       throw new Error('guildId query parameter is required and must be numeric');
     }
 
-    const managedGuildIds = access.runtime.dashboardAuth.managedGuildIds;
-    if (!managedGuildIds.includes(guildId)) {
-      throw new Error('guildId is not in DASHBOARD_MANAGED_GUILD_IDS');
-    }
-
-    if (access.session && Array.isArray(access.session.allowedGuildIds) && !access.session.allowedGuildIds.includes(guildId)) {
+    const manageableGuilds = await resolveManageableGuilds(access);
+    if (!manageableGuilds.some((guild) => guild.id === guildId)) {
       const error = new Error('You do not have admin permission for this guild');
       error.statusCode = 403;
       throw error;
@@ -370,7 +365,7 @@ function startDashboardServer({ service, updater, botController }) {
   async function resolveManageableGuilds(access) {
     const fallbackGuilds = access.session
       ? access.session.adminGuilds || access.session.allowedGuilds || []
-      : access.runtime.dashboardAuth.managedGuildIds.map((guildId) => ({ id: guildId, name: guildId }));
+      : [];
     const allowedGuildIds = fallbackGuilds.map((guild) => guild.id);
     if (!botController || typeof botController.getAccessibleGuilds !== 'function') {
       return fallbackGuilds;
@@ -536,17 +531,14 @@ function startDashboardServer({ service, updater, botController }) {
 
         const identity = await fetchDiscordIdentity(accessToken);
         const adminGuilds = computeAdminGuilds(identity.guilds);
-        const allowedGuilds = computeAllowedGuilds({
-          guilds: identity.guilds,
-          managedGuildIds: runtime.dashboardAuth.managedGuildIds,
-        });
+        const allowedGuilds = adminGuilds;
         const allowedGuildIds = allowedGuilds.map((guild) => guild.id);
 
         if (allowedGuildIds.length === 0) {
           clearCookie(res, DASHBOARD_OAUTH_STATE_COOKIE);
           sendHtml(
             res,
-            '<!doctype html><html><body><h2>Access denied</h2><p>Your Discord account is not an administrator in any managed guild.</p></body></html>'
+            '<!doctype html><html><body><h2>Access denied</h2><p>Your Discord account is not an administrator in any Discord guild.</p></body></html>'
           );
           return;
         }
@@ -609,12 +601,12 @@ function startDashboardServer({ service, updater, botController }) {
         bootstrapMode: access.bootstrapMode,
         reason: access.reason,
         user: access.session ? access.session.user : null,
-        allowedGuildIds: access.session ? access.session.allowedGuildIds : access.runtime.dashboardAuth.managedGuildIds,
-        allowedGuilds: access.session ? access.session.allowedGuilds || [] : access.runtime.dashboardAuth.managedGuildIds.map((guildId) => ({ id: guildId, name: guildId })),
+        allowedGuildIds: access.session ? access.session.allowedGuildIds : [],
+        allowedGuilds: access.session ? access.session.allowedGuilds || [] : [],
         adminGuilds: access.session ? access.session.adminGuilds || [] : [],
         manageableGuilds,
         managedGuildIds: access.runtime.dashboardAuth.managedGuildIds,
-        defaultGuildId: access.runtime.dashboardAuth.managedGuildIds[0] || null,
+        defaultGuildId: manageableGuilds[0] ? manageableGuilds[0].id : null,
       });
       return;
     }
@@ -643,7 +635,7 @@ function startDashboardServer({ service, updater, botController }) {
       }
 
       if (req.method === 'GET' && pathName === '/api/admin/home') {
-        const guildId = resolveGuildContext(requestUrl, access);
+        const guildId = await resolveGuildContext(requestUrl, access);
         const summary = service.getAdminSummaryForGuild(guildId);
         const memoryRssMb = Math.round((process.memoryUsage().rss / 1024 / 1024) * 10) / 10;
         const botRuntime = botController ? botController.getStatus() : { status: 'unknown' };
@@ -665,16 +657,12 @@ function startDashboardServer({ service, updater, botController }) {
       }
 
       if (req.method === 'GET' && pathName === '/api/admin/guilds') {
-        const guildIds = access.session ? access.session.allowedGuildIds : access.runtime.dashboardAuth.managedGuildIds;
-        const guilds = access.session
-          ? access.session.allowedGuilds || guildIds.map((guildId) => ({ id: guildId, name: guildId }))
-          : guildIds.map((guildId) => ({ id: guildId, name: guildId }));
         const manageableGuilds = await resolveManageableGuilds(access);
         sendJson(res, 200, {
-          guildIds,
-          guilds,
+          guildIds: manageableGuilds.map((guild) => guild.id),
+          guilds: manageableGuilds,
           manageableGuilds,
-          defaultGuildId: guildIds[0] || null,
+          defaultGuildId: manageableGuilds[0] ? manageableGuilds[0].id : null,
         });
         return;
       }
@@ -963,14 +951,14 @@ function startDashboardServer({ service, updater, botController }) {
       }
 
       if (req.method === 'GET' && pathName === '/api/users') {
-        const guildId = resolveGuildContext(requestUrl, access);
+        const guildId = await resolveGuildContext(requestUrl, access);
         sendJson(res, 200, { users: await decorateGuildUsers(service.listGuildUsers(guildId)) });
         return;
       }
 
       const userMatch = pathName.match(/^\/api\/users\/(\d+)$/);
       if (req.method === 'GET' && userMatch) {
-        const guildId = resolveGuildContext(requestUrl, access);
+        const guildId = await resolveGuildContext(requestUrl, access);
         const userId = userMatch[1];
         sendJson(res, 200, {
           user: await decorateGuildUser(userId, service.getGuildUserData(guildId, userId, { allowLegacyFallback: true })),
@@ -979,7 +967,7 @@ function startDashboardServer({ service, updater, botController }) {
       }
 
       if (req.method === 'DELETE' && userMatch) {
-        const guildId = resolveGuildContext(requestUrl, access);
+        const guildId = await resolveGuildContext(requestUrl, access);
         const userId = userMatch[1];
         const deleted = service.deleteGuildUser(guildId, userId);
         if (!deleted) {
@@ -992,7 +980,7 @@ function startDashboardServer({ service, updater, botController }) {
 
       const settingsMatch = pathName.match(/^\/api\/users\/(\d+)\/settings$/);
       if (req.method === 'PUT' && settingsMatch) {
-        const guildId = resolveGuildContext(requestUrl, access);
+        const guildId = await resolveGuildContext(requestUrl, access);
         const userId = settingsMatch[1];
         const body = await getRequestBody(req);
         const updated = service.setGuildUserSettings(guildId, userId, {
@@ -1005,7 +993,7 @@ function startDashboardServer({ service, updater, botController }) {
 
       const trackedMatch = pathName.match(/^\/api\/users\/(\d+)\/tracked$/);
       if (req.method === 'POST' && trackedMatch) {
-        const guildId = resolveGuildContext(requestUrl, access);
+        const guildId = await resolveGuildContext(requestUrl, access);
         const userId = trackedMatch[1];
         const body = await getRequestBody(req);
         const result = await service.addTrackedByInputForGuild(guildId, userId, body.input, body.sourceHint);
@@ -1028,7 +1016,7 @@ function startDashboardServer({ service, updater, botController }) {
       }
 
       if (req.method === 'DELETE' && trackedMatch) {
-        const guildId = resolveGuildContext(requestUrl, access);
+        const guildId = await resolveGuildContext(requestUrl, access);
         const userId = trackedMatch[1];
         const source = (requestUrl.searchParams.get('source') || '').trim().toLowerCase();
         const mangaId = (requestUrl.searchParams.get('mangaId') || '').trim();

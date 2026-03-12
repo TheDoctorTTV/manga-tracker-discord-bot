@@ -147,7 +147,6 @@ function getDashboardAuthConfig(values) {
   if (!publicUrl) missing.push('DASHBOARD_PUBLIC_URL');
   if (!clientId) missing.push('DISCORD_AUTH_CLIENT_ID');
   if (!clientSecret) missing.push('DISCORD_AUTH_CLIENT_SECRET');
-  if (managedGuildIds.length === 0) missing.push('DASHBOARD_MANAGED_GUILD_IDS');
 
   return {
     enabled,
@@ -186,7 +185,7 @@ function getDashboardOnboardingConfig(values, oauthInvite, dashboardAuth) {
   if (!dashboardAuthReady) {
     missing.push('DASHBOARD_AUTH_READY');
     hints.push(
-      'Set DASHBOARD_PUBLIC_URL, DISCORD_AUTH_CLIENT_ID, DISCORD_AUTH_CLIENT_SECRET, and DASHBOARD_MANAGED_GUILD_IDS.'
+      'Set DASHBOARD_PUBLIC_URL, DISCORD_AUTH_CLIENT_ID, and DISCORD_AUTH_CLIENT_SECRET.'
     );
   }
 
@@ -216,7 +215,7 @@ function getDashboardOnboardingConfig(values, oauthInvite, dashboardAuth) {
       key: 'dashboard_auth',
       title: 'Step 3 of 3 • Dashboard Auth',
       body:
-        'Set DASHBOARD_PUBLIC_URL, DISCORD_AUTH_CLIENT_ID, DISCORD_AUTH_CLIENT_SECRET, and DASHBOARD_MANAGED_GUILD_IDS. Add the computed callback URL in Discord OAuth2 Redirects, then confirm.',
+        'Set DASHBOARD_PUBLIC_URL, DISCORD_AUTH_CLIENT_ID, and DISCORD_AUTH_CLIENT_SECRET. Add the computed callback URL in Discord OAuth2 Redirects, then confirm.',
       ready: dashboardAuthReady,
       confirmed: callbackConfirmed,
       complete: dashboardAuthReady && callbackConfirmed,

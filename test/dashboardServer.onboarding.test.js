@@ -157,7 +157,6 @@ test(
             DASHBOARD_PUBLIC_URL: 'https://example.com',
             DISCORD_AUTH_CLIENT_ID: '123456789012345678',
             DISCORD_AUTH_CLIENT_SECRET: 'secret',
-            DASHBOARD_MANAGED_GUILD_IDS: '111111111111111111',
           },
         }),
       });

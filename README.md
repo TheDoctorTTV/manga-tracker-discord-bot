@@ -76,7 +76,6 @@ npm -v
    DASHBOARD_PUBLIC_URL=
    DISCORD_AUTH_CLIENT_ID=
    DISCORD_AUTH_CLIENT_SECRET=
-   DASHBOARD_MANAGED_GUILD_IDS=
    DASHBOARD_AUTH_SESSION_HOURS=12
    ```
 4. Install dependencies:
@@ -169,7 +168,6 @@ Setup steps:
    - `DASHBOARD_PUBLIC_URL` (base dashboard URL)
    - `DISCORD_AUTH_CLIENT_ID`
    - `DISCORD_AUTH_CLIENT_SECRET`
-   - `DASHBOARD_MANAGED_GUILD_IDS` (comma-separated guild IDs you manage)
    - `DASHBOARD_AUTH_SESSION_HOURS` (default `12`)
 2. Copy the **Computed OAuth Callback URL** from the dashboard.
 3. In Discord Developer Portal:
@@ -179,7 +177,7 @@ Setup steps:
    - Save changes.
 4. Save settings, then click **Confirm External Step** in onboarding.
 5. Complete onboarding. This marks setup complete and automatically sets `DASHBOARD_AUTH_ENABLED=true`.
-6. Login via Discord. Access is granted only if your Discord account has `ADMINISTRATOR` in at least one managed guild.
+6. Login via Discord. Access is granted only if your Discord account has `ADMINISTRATOR` in at least one guild, and the dashboard can manage guilds where both your account and the running bot have access.
 
 Troubleshooting `redirect_uri_mismatch`:
 - Ensure the callback in Discord exactly matches computed callback URL (character-for-character).
