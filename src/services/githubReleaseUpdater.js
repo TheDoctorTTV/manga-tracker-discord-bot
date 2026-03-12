@@ -478,7 +478,7 @@ if [[ -n "$PACKAGE_ARCHIVE" && -f "$PACKAGE_ARCHIVE" ]]; then
   if tar -xzf "$PACKAGE_ARCHIVE" -C "$EXTRACT_DIR"; then
     PACKAGE_ROOT="$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
     if [[ -n "$PACKAGE_ROOT" && -d "$PACKAGE_ROOT" ]]; then
-      for asset_file in dashboard.html login.html onboarding.html dashboard.css WebsiteLogo.ico; do
+      for asset_file in dashboard.html login.html onboarding.html dashboard.css dashboardTabState.js WebsiteLogo.ico; do
         if [[ -f "$PACKAGE_ROOT/$asset_file" ]]; then
           install -m 644 "$PACKAGE_ROOT/$asset_file" "$INSTALL_DIR/$asset_file"
         fi

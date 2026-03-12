@@ -148,6 +148,40 @@ let dashboardCss = null;
 let dashboardTabStateJs = null;
 let dashboardIcon = undefined;
 
+const DASHBOARD_TAB_STATE_FALLBACK = `(function initDashboardTabState(globalScope) {
+  const VALID_TABS = ['home', 'users', 'settings', 'about'];
+  const FALLBACK_TAB = 'settings';
+
+  function normalizeTab(tabKey) {
+    const normalized = String(tabKey || '').trim().toLowerCase();
+    return VALID_TABS.includes(normalized) ? normalized : '';
+  }
+
+  function resolveDashboardTab(tabKey, options = {}) {
+    const normalized = normalizeTab(tabKey);
+    const onboardingCompleted = options.onboardingCompleted === true;
+    if (!normalized) return FALLBACK_TAB;
+    if (!onboardingCompleted && normalized !== FALLBACK_TAB) return FALLBACK_TAB;
+    return normalized;
+  }
+
+  const api = {
+    VALID_TABS,
+    FALLBACK_TAB,
+    normalizeTab,
+    resolveDashboardTab,
+  };
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = api;
+  }
+
+  if (globalScope && typeof globalScope === 'object') {
+    globalScope.DashboardTabState = api;
+  }
+})(typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : this);
+`;
+
 function loadDashboardAssets() {
   if (dashboardHtmlTemplate === null) {
     dashboardHtmlTemplate = fs.readFileSync(DASHBOARD_HTML_PATH, 'utf8');
@@ -155,10 +189,6 @@ function loadDashboardAssets() {
 
   if (dashboardCss === null) {
     dashboardCss = fs.readFileSync(DASHBOARD_CSS_PATH, 'utf8');
-  }
-
-  if (dashboardTabStateJs === null) {
-    dashboardTabStateJs = fs.readFileSync(DASHBOARD_TAB_STATE_PATH, 'utf8');
   }
 
   if (onboardingHtmlTemplate === null) {
@@ -198,7 +228,14 @@ function getDashboardCss() {
 }
 
 function getDashboardTabStateJs() {
-  loadDashboardAssets();
+  if (dashboardTabStateJs === null) {
+    try {
+      dashboardTabStateJs = fs.readFileSync(DASHBOARD_TAB_STATE_PATH, 'utf8');
+    } catch (error) {
+      if (error && error.code !== 'ENOENT') throw error;
+      dashboardTabStateJs = DASHBOARD_TAB_STATE_FALLBACK;
+    }
+  }
   return dashboardTabStateJs;
 }
 

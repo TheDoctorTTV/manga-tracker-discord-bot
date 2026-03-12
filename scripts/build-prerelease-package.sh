@@ -48,6 +48,7 @@ install -m 644 "$ROOT_DIR/src/web/dashboard.html" "$PKG_DIR/dashboard.html"
 install -m 644 "$ROOT_DIR/src/web/login.html" "$PKG_DIR/login.html"
 install -m 644 "$ROOT_DIR/src/web/onboarding.html" "$PKG_DIR/onboarding.html"
 install -m 644 "$ROOT_DIR/src/web/dashboard.css" "$PKG_DIR/dashboard.css"
+install -m 644 "$ROOT_DIR/src/web/dashboardTabState.js" "$PKG_DIR/dashboardTabState.js"
 if [[ -f "$ROOT_DIR/WebsiteLogo.ico" ]]; then
   install -m 644 "$ROOT_DIR/WebsiteLogo.ico" "$PKG_DIR/WebsiteLogo.ico"
 fi
