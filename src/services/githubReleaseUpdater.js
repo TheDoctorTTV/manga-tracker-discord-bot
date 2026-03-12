@@ -298,6 +298,29 @@ class GitHubReleaseUpdater {
     return assets[0];
   }
 
+  pickDashboardPackageAsset(release, selectedBinaryAsset = null) {
+    const assets = Array.isArray(release.assets) ? release.assets : [];
+    if (assets.length === 0) return null;
+
+    const runningName = path.basename(this.binaryPath).toLowerCase();
+    const preferred = assets.find((asset) => {
+      const name = String(asset.name || '').toLowerCase();
+      return (
+        name.endsWith('.tar.gz') &&
+        name.includes('manga-tracker') &&
+        !name.endsWith(`${runningName}.tar.gz`)
+      );
+    });
+    if (preferred) return preferred;
+
+    return assets.find((asset) => {
+      const name = String(asset.name || '').toLowerCase();
+      if (!name.endsWith('.tar.gz')) return false;
+      if (selectedBinaryAsset && asset.name === selectedBinaryAsset.name) return false;
+      return name.includes('manga-tracker');
+    }) || null;
+  }
+
   async checkForUpdate({ releaseMode = 'release', tagName = '' } = {}) {
     const normalizedMode = releaseMode === 'prerelease' ? 'prerelease' : 'release';
     const releases = await this.fetchReleases({ releaseMode: normalizedMode, limit: 30 });
@@ -371,19 +394,32 @@ class GitHubReleaseUpdater {
     }
 
     const asset = this.pickReleaseAsset(check.release, assetName);
+    const packageAsset = this.pickDashboardPackageAsset(check.release, asset);
     const binaryDir = path.dirname(this.binaryPath);
     const tempPath = path.join(binaryDir, `${path.basename(this.binaryPath)}.download-${Date.now()}`);
     const backupPath = `${this.binaryPath}.bak`;
+    const packagePath = packageAsset
+      ? path.join(binaryDir, `${packageAsset.name}.download-${Date.now()}.tar.gz`)
+      : '';
 
     const download = await downloadFile(asset.browserDownloadUrl, tempPath);
     if (!download.bytes) {
       throw new Error('Downloaded asset is empty');
     }
 
+    let packageDownload = null;
+    if (packageAsset && packageAsset.browserDownloadUrl) {
+      packageDownload = await downloadFile(packageAsset.browserDownloadUrl, packagePath);
+      if (!packageDownload.bytes) {
+        throw new Error('Downloaded dashboard package asset is empty');
+      }
+    }
+
     const worker = this.launchDetachedReplaceWorker({
       targetBinaryPath: this.binaryPath,
       downloadedBinaryPath: tempPath,
       backupPath,
+      downloadedPackagePath: packageDownload ? packagePath : '',
       originalMode: stats.mode,
       targetPid: process.pid,
     });
@@ -402,11 +438,13 @@ class GitHubReleaseUpdater {
       },
       backupPath,
       download,
+      packageAsset: packageAsset ? { name: packageAsset.name, size: packageAsset.size } : null,
+      packageDownload,
       worker,
     };
   }
 
-  launchDetachedReplaceWorker({ targetBinaryPath, downloadedBinaryPath, backupPath, originalMode, targetPid }) {
+  launchDetachedReplaceWorker({ targetBinaryPath, downloadedBinaryPath, backupPath, downloadedPackagePath, originalMode, targetPid }) {
     const scriptPath = path.join(os.tmpdir(), `manga-tracker-updater-${Date.now()}-${Math.random().toString(16).slice(2)}.sh`);
     const logPath = path.join(os.tmpdir(), `manga-tracker-updater-${Date.now()}-${Math.random().toString(16).slice(2)}.log`);
     const scriptBody = `#!/usr/bin/env bash
@@ -414,11 +452,12 @@ set -euo pipefail
 TARGET_BINARY="$1"
 NEW_BINARY="$2"
 BACKUP_BINARY="$3"
-MODE_OCTAL="$4"
-OLD_PID="$5"
-SCRIPT_SELF="$6"
-SYSTEMD_SERVICE="$7"
-LOG_FILE="$8"
+PACKAGE_ARCHIVE="$4"
+MODE_OCTAL="$5"
+OLD_PID="$6"
+SCRIPT_SELF="$7"
+SYSTEMD_SERVICE="$8"
+LOG_FILE="$9"
 
 touch "$LOG_FILE" 2>/dev/null || true
 {
@@ -432,6 +471,26 @@ fi
 chmod "$MODE_OCTAL" "$NEW_BINARY" 2>/dev/null || chmod +x "$NEW_BINARY"
 mv -f "$NEW_BINARY" "$TARGET_BINARY"
 chmod "$MODE_OCTAL" "$TARGET_BINARY" 2>/dev/null || chmod +x "$TARGET_BINARY"
+
+if [[ -n "$PACKAGE_ARCHIVE" && -f "$PACKAGE_ARCHIVE" ]]; then
+  INSTALL_DIR="$(dirname "$TARGET_BINARY")"
+  EXTRACT_DIR="$(mktemp -d "\${TMPDIR:-/tmp}/manga-tracker-assets.XXXXXX")"
+  if tar -xzf "$PACKAGE_ARCHIVE" -C "$EXTRACT_DIR"; then
+    PACKAGE_ROOT="$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+    if [[ -n "$PACKAGE_ROOT" && -d "$PACKAGE_ROOT" ]]; then
+      for asset_file in dashboard.html login.html onboarding.html dashboard.css WebsiteLogo.ico; do
+        if [[ -f "$PACKAGE_ROOT/$asset_file" ]]; then
+          install -m 644 "$PACKAGE_ROOT/$asset_file" "$INSTALL_DIR/$asset_file"
+        fi
+      done
+      echo "[$(date -Is)] dashboard assets refreshed from package archive"
+    fi
+  else
+    echo "[$(date -Is)] failed to extract package archive $PACKAGE_ARCHIVE" >&2
+  fi
+  rm -rf "$EXTRACT_DIR" 2>/dev/null || true
+  rm -f "$PACKAGE_ARCHIVE" 2>/dev/null || true
+fi
 
 if [[ -z "$SYSTEMD_SERVICE" ]]; then
   echo "Missing systemd service name for update restart" >&2
@@ -469,7 +528,18 @@ echo "[$(date -Is)] updater worker finished"
 
     const child = spawn(
       '/bin/bash',
-      [scriptPath, targetBinaryPath, downloadedBinaryPath, backupPath, modeOctal, String(targetPid), scriptPath, this.systemdService, logPath],
+      [
+        scriptPath,
+        targetBinaryPath,
+        downloadedBinaryPath,
+        backupPath,
+        downloadedPackagePath || '',
+        modeOctal,
+        String(targetPid),
+        scriptPath,
+        this.systemdService,
+        logPath,
+      ],
       {
         detached: true,
         stdio: 'ignore',
