@@ -77,7 +77,7 @@
           <button id="refreshUsers" type="button">Refresh</button>
         </div>
         <label for="userSearch">Search Users</label>
-        <input id="userSearch" placeholder="Search by user id" />
+        <input id="userSearch" placeholder="Search by user name or id" />
         <div id="users" class="list user-grid" role="list" aria-label="Users"></div>
       </div>
       <div id="userDetailPanel" class="user-detail-panel hidden">
@@ -264,7 +264,8 @@
       <div class="card">
         <strong>Managed Server IDs</strong>
         <small class="setting-key">DASHBOARD_MANAGED_GUILD_IDS</small>
-        <input id="envDashboardManagedGuildIds" placeholder="111111111111111111,222222222222222222" />
+        <select id="envDashboardManagedGuildIds" multiple size="6"></select>
+        <small id="envDashboardManagedGuildIdsHelp">Select the servers this dashboard should manage.</small>
       </div>
       <div class="card">
         <strong>Session Length (Hours)</strong>
@@ -441,6 +442,7 @@ const state = {
   auth: null,
   activeGuildId: '',
   managedGuildIds: [],
+  manageableGuilds: [],
   guildNamesById: {},
   activeTab: FALLBACK_TAB,
   preferredTab: FALLBACK_TAB,
@@ -512,6 +514,39 @@ function getGuildLabel(guildId) {
   const normalized = String(guildId || '').trim();
   if (!normalized) return '';
   return state.guildNamesById[normalized] || normalized;
+}
+
+function getUserLabel(user) {
+  if (!user) return '';
+  const displayName = String(user.displayName || '').trim();
+  return displayName || String(user.userId || '').trim();
+}
+
+function parseGuildIdCsv(value) {
+  return Array.from(
+    new Set(
+      String(value || '')
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function getSelectedValues(select) {
+  if (!select) return [];
+  return Array.from(select.selectedOptions || [])
+    .map((option) => String(option.value || '').trim())
+    .filter(Boolean);
+}
+
+function getManagedGuildIdsForSave() {
+  const select = document.getElementById('envDashboardManagedGuildIds');
+  const selected = getSelectedValues(select);
+  if (selected.length > 0 || !select || !select.disabled) {
+    return selected.join(',');
+  }
+  return String((state.envConfig && state.envConfig.values && state.envConfig.values.DASHBOARD_MANAGED_GUILD_IDS) || '').trim();
 }
 
 function clearSelectedUserView() {
@@ -690,7 +725,13 @@ function renderUsers() {
   replaceChildren(list, []);
 
   const search = state.userSearch.trim().toLowerCase();
-  const users = search ? state.users.filter((user) => user.userId.toLowerCase().includes(search)) : state.users;
+  const users = search
+    ? state.users.filter((user) => {
+        const userId = String(user.userId || '').toLowerCase();
+        const displayName = String(user.displayName || '').toLowerCase();
+        return userId.includes(search) || displayName.includes(search);
+      })
+    : state.users;
 
   if (!users.length) {
     const empty = document.createElement('div');
@@ -712,7 +753,7 @@ function renderUsers() {
     const topLine = document.createElement('div');
     topLine.className = 'user-item-head';
     const title = document.createElement('strong');
-    title.textContent = user.userId;
+    title.textContent = getUserLabel(user);
     const badge = document.createElement('span');
     badge.className = 'badge';
     badge.textContent = user.trackedCount + ' tracked';
@@ -720,7 +761,14 @@ function renderUsers() {
 
     const meta = document.createElement('small');
     meta.textContent =
-      user.preferredSource + ' • every ' + user.autoCheckIntervalHours + 'h' + (user.isLegacy ? ' • legacy fallback' : '');
+      'ID ' +
+      user.userId +
+      ' • ' +
+      user.preferredSource +
+      ' • every ' +
+      user.autoCheckIntervalHours +
+      'h' +
+      (user.isLegacy ? ' • legacy fallback' : '');
 
     row.append(topLine, meta);
     row.addEventListener('click', () => selectUser(user.userId));
@@ -972,7 +1020,44 @@ function renderEnvSettings() {
   document.getElementById('envDashboardPublicUrl').value = values.DASHBOARD_PUBLIC_URL || '';
   document.getElementById('envDiscordAuthClientId').value = values.DISCORD_AUTH_CLIENT_ID || '';
   document.getElementById('envDiscordAuthClientSecret').value = values.DISCORD_AUTH_CLIENT_SECRET || '';
-  document.getElementById('envDashboardManagedGuildIds').value = values.DASHBOARD_MANAGED_GUILD_IDS || '';
+  const managedGuildSelect = document.getElementById('envDashboardManagedGuildIds');
+  const managedGuildHelp = document.getElementById('envDashboardManagedGuildIdsHelp');
+  const configuredGuildIds = parseGuildIdCsv(values.DASHBOARD_MANAGED_GUILD_IDS || '');
+  const guildOptions = [];
+  const seenGuildIds = new Set();
+
+  for (const guild of state.manageableGuilds) {
+    const guildId = String(guild && guild.id || '').trim();
+    if (!guildId || seenGuildIds.has(guildId)) continue;
+    seenGuildIds.add(guildId);
+    guildOptions.push({
+      id: guildId,
+      name: String(guild && guild.name || '').trim() || guildId,
+    });
+  }
+  for (const guildId of configuredGuildIds) {
+    if (seenGuildIds.has(guildId)) continue;
+    seenGuildIds.add(guildId);
+    guildOptions.push({ id: guildId, name: getGuildLabel(guildId) || guildId });
+  }
+
+  replaceChildren(
+    managedGuildSelect,
+    guildOptions.length > 0
+      ? guildOptions.map((guild) => {
+          const option = createOption(guild.id, guild.name);
+          option.selected = configuredGuildIds.includes(guild.id);
+          return option;
+        })
+      : [createOption('', 'No accessible bot guilds available')]
+  );
+  managedGuildSelect.disabled = guildOptions.length === 0;
+  if (managedGuildHelp) {
+    managedGuildHelp.textContent =
+      guildOptions.length > 0
+        ? 'Select one or more servers. Only servers the current admin can access are shown.'
+        : 'No bot-accessible servers are available right now. Start the bot or log in with Discord to load server choices.';
+  }
   document.getElementById('envDashboardAuthSessionHours').value = values.DASHBOARD_AUTH_SESSION_HOURS || '12';
 
   const callbackUrl = state.envConfig.dashboardAuth && state.envConfig.dashboardAuth.callbackUrl
@@ -1304,8 +1389,12 @@ function hideAuthGate() {
 async function refreshAuthState() {
   state.auth = await api('/api/admin/auth/me');
   state.managedGuildIds = Array.isArray(state.auth.allowedGuildIds) ? state.auth.allowedGuildIds : [];
+  state.manageableGuilds = Array.isArray(state.auth.manageableGuilds) ? state.auth.manageableGuilds : [];
   state.guildNamesById = {};
-  const allowedGuilds = Array.isArray(state.auth.allowedGuilds) ? state.auth.allowedGuilds : [];
+  const allowedGuilds = [
+    ...(Array.isArray(state.auth.allowedGuilds) ? state.auth.allowedGuilds : []),
+    ...state.manageableGuilds,
+  ];
   for (const guild of allowedGuilds) {
     const guildId = String(guild && guild.id || '').trim();
     if (!guildId) continue;
@@ -1405,11 +1494,14 @@ async function selectUser(userId) {
   state.selectedUserId = userId;
   const payload = await api(withGuildPath('/api/users/' + userId));
   state.selectedUserData = payload.user;
+  const userLabel = getUserLabel(payload.user);
 
-  document.getElementById('selectedUserTitle').textContent = 'User ' + userId;
+  document.getElementById('selectedUserTitle').textContent = userLabel;
   document.getElementById('userMeta').textContent =
-    'Guild: ' +
-    state.activeGuildId +
+    'User ID: ' +
+    userId +
+    ' • Guild: ' +
+    getGuildLabel(state.activeGuildId) +
     ' • Tracked: ' +
     payload.user.tracked.length +
     ' • Last auto-check: ' +
@@ -1550,7 +1642,7 @@ async function saveEnvConfig({ silent = false } = {}) {
           DASHBOARD_PUBLIC_URL: document.getElementById('envDashboardPublicUrl').value,
           DISCORD_AUTH_CLIENT_ID: document.getElementById('envDiscordAuthClientId').value,
           DISCORD_AUTH_CLIENT_SECRET: document.getElementById('envDiscordAuthClientSecret').value,
-          DASHBOARD_MANAGED_GUILD_IDS: document.getElementById('envDashboardManagedGuildIds').value,
+          DASHBOARD_MANAGED_GUILD_IDS: getManagedGuildIdsForSave(),
           DASHBOARD_AUTH_SESSION_HOURS: document.getElementById('envDashboardAuthSessionHours').value,
         },
       }),

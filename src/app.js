@@ -90,6 +90,21 @@ function makeBotRuntimeController({ service }) {
 
   return {
     getStatus,
+    getAccessibleGuilds(allowedGuildIds = []) {
+      if (!bot || typeof bot.listConnectedGuilds !== 'function') return [];
+      const connectedGuilds = bot.listConnectedGuilds();
+      const allowedSet = new Set(
+        (Array.isArray(allowedGuildIds) ? allowedGuildIds : [])
+          .map((guildId) => String(guildId || '').trim())
+          .filter(Boolean)
+      );
+      if (allowedSet.size === 0) return connectedGuilds;
+      return connectedGuilds.filter((guild) => allowedSet.has(guild.id));
+    },
+    async resolveUserLabels(userIds = []) {
+      if (!bot || typeof bot.resolveUsers !== 'function') return {};
+      return bot.resolveUsers(userIds);
+    },
     start,
     stop,
     restart,

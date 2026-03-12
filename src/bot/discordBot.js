@@ -29,6 +29,40 @@ function createDiscordBot({ service, discordToken }) {
   const pendingFallbackActions = new Map();
   let autoCheckJob = null;
 
+  function listConnectedGuilds() {
+    return Array.from(client.guilds.cache.values())
+      .map((guild) => ({
+        id: String(guild.id || '').trim(),
+        name: String(guild.name || '').trim() || String(guild.id || '').trim(),
+      }))
+      .filter((guild) => guild.id)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async function resolveUsers(userIds) {
+    const ids = Array.from(
+      new Set(
+        (Array.isArray(userIds) ? userIds : [])
+          .map((userId) => String(userId || '').trim())
+          .filter((userId) => /^\d+$/.test(userId))
+      )
+    );
+    const resolved = {};
+
+    await Promise.all(
+      ids.map(async (userId) => {
+        try {
+          const user = await client.users.fetch(userId);
+          resolved[userId] = String(user?.globalName || user?.username || userId).trim() || userId;
+        } catch {
+          resolved[userId] = userId;
+        }
+      })
+    );
+
+    return resolved;
+  }
+
   function pruneExpiredPendingFallbacks() {
     const now = Date.now();
     for (const [token, action] of pendingFallbackActions.entries()) {
@@ -713,6 +747,8 @@ function createDiscordBot({ service, discordToken }) {
 
   return {
     start: async () => client.login(discordToken),
+    listConnectedGuilds,
+    resolveUsers,
     stop: async () => {
       if (autoCheckJob) {
         autoCheckJob.cancel();

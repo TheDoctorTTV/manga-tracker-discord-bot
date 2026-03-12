@@ -366,6 +366,49 @@ function startDashboardServer({ service, updater, botController }) {
     return guildId;
   }
 
+  async function resolveManageableGuilds(access) {
+    const fallbackGuilds = access.session
+      ? access.session.allowedGuilds || []
+      : access.runtime.dashboardAuth.managedGuildIds.map((guildId) => ({ id: guildId, name: guildId }));
+    const allowedGuildIds = fallbackGuilds.map((guild) => guild.id);
+    if (!botController || typeof botController.getAccessibleGuilds !== 'function') {
+      return fallbackGuilds;
+    }
+
+    const accessibleGuilds = await Promise.resolve(botController.getAccessibleGuilds(allowedGuildIds));
+    if (Array.isArray(accessibleGuilds) && accessibleGuilds.length > 0) {
+      return accessibleGuilds;
+    }
+    return fallbackGuilds;
+  }
+
+  async function resolveUserLabels(userIds) {
+    if (!botController || typeof botController.resolveUserLabels !== 'function') return {};
+    try {
+      const labels = await Promise.resolve(botController.resolveUserLabels(userIds));
+      return labels && typeof labels === 'object' ? labels : {};
+    } catch {
+      return {};
+    }
+  }
+
+  async function decorateGuildUsers(users) {
+    const labels = await resolveUserLabels(users.map((user) => user.userId));
+    return users.map((user) => ({
+      ...user,
+      displayName: labels[user.userId] || user.userId,
+    }));
+  }
+
+  async function decorateGuildUser(userId, user) {
+    const labels = await resolveUserLabels([userId]);
+    return {
+      ...user,
+      userId,
+      displayName: labels[userId] || userId,
+    };
+  }
+
   const server = http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url, `http://${req.headers.host || `${DASHBOARD_HOST}:${DASHBOARD_PORT}`}`);
     const pathName = requestUrl.pathname;
@@ -554,6 +597,7 @@ function startDashboardServer({ service, updater, botController }) {
     }
 
     if (req.method === 'GET' && pathName === '/api/admin/auth/me') {
+      const manageableGuilds = await resolveManageableGuilds(access);
       sendJson(res, 200, {
         authenticated: access.authenticated,
         authEnabled: access.runtime.dashboardAuth.enabled,
@@ -564,6 +608,7 @@ function startDashboardServer({ service, updater, botController }) {
         user: access.session ? access.session.user : null,
         allowedGuildIds: access.session ? access.session.allowedGuildIds : access.runtime.dashboardAuth.managedGuildIds,
         allowedGuilds: access.session ? access.session.allowedGuilds || [] : access.runtime.dashboardAuth.managedGuildIds.map((guildId) => ({ id: guildId, name: guildId })),
+        manageableGuilds,
         managedGuildIds: access.runtime.dashboardAuth.managedGuildIds,
         defaultGuildId: access.runtime.dashboardAuth.managedGuildIds[0] || null,
       });
@@ -620,9 +665,11 @@ function startDashboardServer({ service, updater, botController }) {
         const guilds = access.session
           ? access.session.allowedGuilds || guildIds.map((guildId) => ({ id: guildId, name: guildId }))
           : guildIds.map((guildId) => ({ id: guildId, name: guildId }));
+        const manageableGuilds = await resolveManageableGuilds(access);
         sendJson(res, 200, {
           guildIds,
           guilds,
+          manageableGuilds,
           defaultGuildId: guildIds[0] || null,
         });
         return;
@@ -913,7 +960,7 @@ function startDashboardServer({ service, updater, botController }) {
 
       if (req.method === 'GET' && pathName === '/api/users') {
         const guildId = resolveGuildContext(requestUrl, access);
-        sendJson(res, 200, { users: service.listGuildUsers(guildId) });
+        sendJson(res, 200, { users: await decorateGuildUsers(service.listGuildUsers(guildId)) });
         return;
       }
 
@@ -921,7 +968,9 @@ function startDashboardServer({ service, updater, botController }) {
       if (req.method === 'GET' && userMatch) {
         const guildId = resolveGuildContext(requestUrl, access);
         const userId = userMatch[1];
-        sendJson(res, 200, { user: service.getGuildUserData(guildId, userId, { allowLegacyFallback: true }) });
+        sendJson(res, 200, {
+          user: await decorateGuildUser(userId, service.getGuildUserData(guildId, userId, { allowLegacyFallback: true })),
+        });
         return;
       }
 
@@ -946,7 +995,7 @@ function startDashboardServer({ service, updater, botController }) {
           preferredSource: body.preferredSource,
           autoCheckIntervalHours: body.autoCheckIntervalHours,
         });
-        sendJson(res, 200, { user: updated, message: 'Settings updated.' });
+        sendJson(res, 200, { user: await decorateGuildUser(userId, updated), message: 'Settings updated.' });
         return;
       }
 

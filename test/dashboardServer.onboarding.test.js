@@ -8,7 +8,7 @@ function randomPort() {
   return 21000 + Math.floor(Math.random() * 15000);
 }
 
-async function startServerWithTempEnv() {
+async function startServerWithTempEnv(options = {}) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-dashboard-test-'));
   const envFilePath = path.join(tempDir, '.env.test');
   const port = randomPort();
@@ -32,7 +32,7 @@ async function startServerWithTempEnv() {
       },
     },
     updater: null,
-    botController: null,
+    botController: options.botController || null,
   });
 
   await new Promise((resolve, reject) => {
@@ -177,6 +177,39 @@ test(
       assert.equal(response.status, 200);
       assert.equal(response.payload.message, 'Setup marked complete.');
       assert.equal(response.payload.onboarding.completed, true);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  }
+);
+
+test(
+  'exposes manageable guild metadata during bootstrap',
+  { concurrency: false },
+  async (t) => {
+    let server;
+    let port;
+    try {
+      const started = await startServerWithTempEnv({
+        botController: {
+          getAccessibleGuilds() {
+            return [{ id: '111111111111111111', name: 'Alpha Guild' }];
+          },
+        },
+      });
+      server = started.server;
+      port = started.port;
+    } catch (error) {
+      if (error && error.code === 'EPERM') {
+        t.skip('Socket binding is not permitted in this sandbox.');
+        return;
+      }
+      throw error;
+    }
+    try {
+      const response = await requestJson(port, '/api/admin/auth/me');
+      assert.equal(response.status, 200);
+      assert.deepEqual(response.payload.manageableGuilds, [{ id: '111111111111111111', name: 'Alpha Guild' }]);
     } finally {
       await new Promise((resolve) => server.close(resolve));
     }
